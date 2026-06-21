@@ -10,6 +10,9 @@ data/db/*.sqlite
 backend/data/db/*.db
 backend/data/db/*.sqlite
 
+# Config local de Claude Code
+.claude/
+
 # Archivos pesados / artefactos que no deben ir al repo
 *.zip
 *.log
