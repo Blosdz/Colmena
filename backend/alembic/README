@@ -1,0 +1,5 @@
+Configuracion de Alembic para Colmena.
+
+- `env.py` reutiliza la configuracion de `app.core.config`.
+- `Base.metadata` se importa desde `app.models.base`.
+- La primera migracion crea la tabla `projects`.

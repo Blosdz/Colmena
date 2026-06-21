@@ -1,0 +1,329 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #1c1f24;
+  background-color: #FAFAF8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #FAFAF8 radial-gradient(circle at 50% -20%, rgba(245,178,26,0.06), transparent 60%);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: #1c1f24;
+  background-attachment: fixed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+input[type="checkbox"] {
+  accent-color: #F5B21A;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+input[type="range"] {
+  accent-color: #F5B21A;
+}
+
+summary {
+  list-style: none;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c8cdd4;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a8b3;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::selection {
+  background: rgba(245, 178, 26, 0.22);
+}
+
+/* ── Design tokens ────────────────────────────── */
+
+.colmena-card {
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.colmena-card:hover {
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transform: translateY(-2px);
+}
+
+.colmena-input {
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(223, 226, 230, 0.8);
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+  padding: 0 14px;
+  font-size: 14px;
+  color: #1c1f24;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+}
+
+.colmena-input:focus {
+  border-color: #F5B21A;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(245, 178, 26, 0.15), inset 0 1px 2px rgba(0,0,0,0.02);
+}
+
+.colmena-input::placeholder {
+  color: #9ca3af;
+}
+
+.colmena-button-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #F5B21A 0%, #E09A0A 100%);
+  color: #ffffff;
+  padding: 0 22px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: 0 4px 12px rgba(245, 178, 26, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  letter-spacing: -0.01em;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.colmena-button-primary:hover {
+  background: linear-gradient(135deg, #FFC138 0%, #F5B21A 100%);
+  box-shadow: 0 6px 20px rgba(245, 178, 26, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.colmena-button-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(245, 178, 26, 0.3);
+}
+
+.colmena-button-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.colmena-button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(223, 226, 230, 0.8);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  color: #1c1f24;
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.01);
+}
+
+.colmena-button-secondary:hover {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: #cfd3d9;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+  transform: translateY(-1px);
+}
+
+.colmena-button-secondary:active {
+  background: #f5f6f8;
+  transform: translateY(0);
+}
+
+.colmena-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.colmena-muted {
+  color: #6b7280;
+}
+
+/* ── Animations ───────────────────────────────── */
+
+@keyframes colmena-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes colmena-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes colmena-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-colmena-fade-in {
+  animation: colmena-fade-in 0.35s ease-out;
+}
+
+/* ── Contenteditable placeholder ──────────────── */
+
+[contenteditable][data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+/* ── Compact button variants (2026) ──────────── */
+
+.colmena-button-sm-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #F5B21A 0%, #E09A0A 100%);
+  color: #ffffff;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(245, 178, 26, 0.25);
+  letter-spacing: -0.01em;
+}
+
+.colmena-button-sm-primary:hover {
+  box-shadow: 0 4px 12px rgba(245, 178, 26, 0.35);
+  transform: translateY(-1px);
+}
+
+.colmena-button-sm-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.colmena-button-sm-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #E6E8EB;
+  background: white;
+  color: #1c1f24;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.colmena-button-sm-secondary:hover {
+  background: #F5F6F8;
+  border-color: #cfd3d9;
+}
+
+/* ── Pill tabs ───────────────────────────────────── */
+
+.colmena-pill-tab {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border-radius: 7px;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6B7280;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  transition: all 0.15s ease;
+  letter-spacing: 0.01em;
+}
+
+.colmena-pill-tab:hover {
+  background: rgba(245, 178, 26, 0.06);
+  color: #1c1f24;
+}
+
+.colmena-pill-tab.active {
+  background: rgba(245, 178, 26, 0.12);
+  color: #1c1f24;
+  box-shadow: inset 0 0 0 1px rgba(245, 178, 26, 0.2);
+}
+
+/* ── Label ───────────────────────────────────────── */
+
+.colmena-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+

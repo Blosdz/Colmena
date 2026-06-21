@@ -1,0 +1,21 @@
+.venv
+__pycache__
+*.pyc
+.env
+node_modules
+dist
+.DS_Store
+data/db/*.db
+data/db/*.sqlite
+backend/data/db/*.db
+backend/data/db/*.sqlite
+
+# Archivos pesados / artefactos que no deben ir al repo
+*.zip
+*.log
+*.err
+backend/data/exports/
+backend/data/uploads/
+.pytest_cache/
+.runlogs/
+_runlogs/

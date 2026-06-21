@@ -1,0 +1,15 @@
+<svg width="720" height="220" viewBox="0 0 720 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="220" rx="24" fill="#FFFFFF"/>
+  <g transform="translate(36 20)">
+    <polygon points="110,18 150,38 145,84 102,99 70,71 76,31" fill="none" stroke="#F5B21A" stroke-width="8" stroke-linejoin="round"/>
+    <polygon points="178,34 216,24 250,53 244,96 198,108 168,76" fill="none" stroke="#FF6A2A" stroke-width="8" stroke-linejoin="round"/>
+    <polygon points="144,102 182,92 214,120 208,165 162,176 132,144" fill="none" stroke="#11B7B2" stroke-width="8" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(250 128)">
+    <text x="0" y="0" fill="#111111" font-family="Inter, Arial, sans-serif" font-size="58" letter-spacing="14">COLM</text>
+    <rect x="315" y="-40" width="52" height="10" fill="#F5B21A" rx="2"/>
+    <rect x="315" y="-19" width="52" height="10" fill="#FF6A2A" rx="2"/>
+    <rect x="315" y="2" width="52" height="10" fill="#11B7B2" rx="2"/>
+    <text x="390" y="0" fill="#111111" font-family="Inter, Arial, sans-serif" font-size="58" letter-spacing="14">NA</text>
+  </g>
+</svg>

@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+python-dotenv
+pandas
+numpy
+scipy
+statsmodels
+python-docx
+openpyxl
+alembic
+pytest
+httpx
