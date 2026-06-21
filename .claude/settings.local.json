@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -rf .venv)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(./.venv/bin/python -m pip install --quiet --upgrade pip)",
+      "Bash(./.venv/bin/pip install *)",
+      "Bash(./.venv/bin/pip list *)",
+      "Bash(cp .env.example .env)",
+      "Bash(./.venv/bin/python -m alembic upgrade head)",
+      "Bash(./.venv/bin/python -m alembic current)",
+      "Bash(./.venv/bin/python -c \"import sqlite3; c=sqlite3.connect\\('data/db/colmena.db'\\); c.execute\\('DROP TABLE IF EXISTS chart_editor_states'\\); c.commit\\(\\); print\\('tabla parcial eliminada'\\)\")",
+      "Bash(npm run *)",
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /dev/null -w \"backend\\(/docs\\): %{http_code}\\\\n\" http://127.0.0.1:8080/docs)",
+      "Bash(break)",
+      "Bash(curl -s -o /dev/null -w \"frontend\\(5173\\): %{http_code}\\\\n\" http://127.0.0.1:5173)",
+      "Bash(curl -s http://127.0.0.1:8080/api/health)",
+      "Bash(npm --version)",
+      "Bash(echo \"node: $\\(node --version\\)  npm: $\\(npm --version\\)\")",
+      "Bash(rm -rf node_modules)",
+      "Bash(npm install *)",
+      "Bash(./.venv/bin/python -c \"import sqlite3; c=sqlite3.connect\\('data/db/colmena.db'\\); print\\('\\\\n'.join\\(t[0] for t in c.execute\\(\\\\\"select name from sqlite_master where type='table' order by name\\\\\"\\)\\)\\)\")",
+      "Bash(./.venv/bin/python -c \"import sqlite3; c=sqlite3.connect\\('data/db/colmena.db'\\); r=[t[0] for t in c.execute\\(\\\\\"select name from sqlite_master where type='table'\\\\\"\\) if any\\(k in t[0].lower\\(\\) for k in \\('user','auth','login','account','session','token','password','credential'\\)\\)]; print\\(r or 'NINGUNA tabla de usuarios/auth'\\)\")",
+      "Bash(./.venv/bin/python -c ' *)"
+    ]
+  }
+}

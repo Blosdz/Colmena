@@ -29,19 +29,14 @@ def upgrade() -> None:
         sa.Column("metadata_json", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint("form_id", "chart_id", name="uq_chart_editor_form_chart"),
     )
     op.create_index("ix_chart_editor_states_form_id", "chart_editor_states", ["form_id"])
     op.create_index("ix_chart_editor_states_project_id", "chart_editor_states", ["project_id"])
     op.create_index("ix_chart_editor_states_storage_key", "chart_editor_states", ["storage_key"])
-    op.create_unique_constraint(
-        "uq_chart_editor_form_chart",
-        "chart_editor_states",
-        ["form_id", "chart_id"],
-    )
 
 
 def downgrade() -> None:
-    op.drop_constraint("uq_chart_editor_form_chart", "chart_editor_states", type_="unique")
     op.drop_index("ix_chart_editor_states_storage_key", "chart_editor_states")
     op.drop_index("ix_chart_editor_states_project_id", "chart_editor_states")
     op.drop_index("ix_chart_editor_states_form_id", "chart_editor_states")
