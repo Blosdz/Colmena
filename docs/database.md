@@ -8,15 +8,14 @@
 
 | Pregunta | Respuesta |
 |----------|-----------|
-| **¿Tiene tabla de `users`?** | ❌ **NO.** No existe ninguna tabla de usuarios, cuentas, sesiones, tokens ni credenciales. |
-| **¿Tiene backend de autenticación (login/signup)?** | ❌ **NO.** No hay endpoints, modelos ni lógica de login, registro, JWT, OAuth ni contraseñas. |
-| **¿Hay login/registro en la página (frontend)?** | ❌ **NO.** No existen rutas ni pantallas de login o signup en React. |
-| **¿Quién es el "dueño" de un proyecto?** | Nadie. Los proyectos **no están vinculados a un usuario**; cualquiera con acceso a la API los ve/edita. |
+| **¿Tiene tabla de `users`?** | ✅ **SÍ.** Existe `users` (espejo de cuentas de AppThesis vía cross-login). |
+| **¿Tiene backend de autenticación?** | ✅ **Parcial.** Cross-login: `POST /api/v1/auth/appthesis` valida un JWT de AppThesis y crea/actualiza el usuario local. No hay contraseñas propias. |
+| **¿Quién es el "dueño" de un proyecto?** | El usuario autenticado que lo crea: `projects.user_id` (NOT NULL, FK → `users.id`). |
 
-> ⚠️ **Implicación de seguridad:** hoy la API es **abierta**. Toda la información de
-> investigación (proyectos, formularios, respuestas) es accesible sin autenticación.
-> Si se va a exponer públicamente (p. ej. con ngrok), conviene añadir una capa de auth
-> antes. Es una funcionalidad **pendiente**, no implementada.
+> ⚠️ **Estado de seguridad:** `POST /api/v1/projects` exige `Authorization: Bearer <JWT
+> de AppThesis>` (se valida contra thesis-backend). Las lecturas (`GET`) siguen abiertas
+> por ahora; el **owner-scoping** de listados (que cada usuario vea solo lo suyo) es un
+> pendiente.
 
 ---
 
@@ -90,25 +89,56 @@ export_artifacts     (CSV, Excel, Word, imágenes generadas)
 ## Esquema detallado
 
 ### `projects`
-Unidad raíz. **No tiene FK a usuarios.**
+Unidad raíz. Tiene dueño (`user_id`) y los tipos normalizados como FK a catálogos.
+La demografía se movió a `project_demographics` (1:1).
 
 | Columna | Tipo | Notas |
 |---------|------|-------|
 | id | VARCHAR(36) | PK |
+| user_id | VARCHAR(36) | **NOT NULL, FK → users.id** (dueño) |
 | title | VARCHAR(255) | NOT NULL |
 | subtitle | VARCHAR(255) | |
-| research_type | VARCHAR(100) | |
-| design_type | VARCHAR(150) | |
-| approach | VARCHAR(100) | |
+| type_research_id | VARCHAR(36) | FK → type_research.id |
+| design_type_id | VARCHAR(36) | FK → design_type.id |
+| approach_id | VARCHAR(36) | FK → approach.id |
 | institution | VARCHAR(255) | |
 | faculty | VARCHAR(255) | |
 | career | VARCHAR(255) | |
 | advisor_name | VARCHAR(255) | nombre del asesor (texto, no un usuario) |
-| population_description | TEXT | |
-| sample_size_planned | INTEGER | |
-| sample_size_current | INTEGER | NOT NULL |
 | status | VARCHAR(50) | NOT NULL |
 | notes | TEXT | |
+| created_at / updated_at | DATETIME | |
+| deleted_at | DATETIME | soft delete |
+
+### Catálogos `type_research` / `design_type` / `approach`
+Misma estructura los tres (normalizan los tipos que antes eran texto en `projects`).
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| id | VARCHAR(36) | PK |
+| name | VARCHAR(150) | NOT NULL, UNIQUE |
+| description | TEXT | |
+| metadata_json | JSON | |
+| is_active | BOOLEAN | NOT NULL, default TRUE |
+| created_at / updated_at | DATETIME | |
+| deleted_at | DATETIME | soft delete |
+
+Endpoints de lectura: `GET /api/v1/catalogs/research-types|design-types|approaches`.
+
+### `project_demographics`
+Demografía del proyecto. **1:1 con `projects`** (UNIQUE en `project_id`).
+
+| Columna | Tipo | Notas |
+|---------|------|-------|
+| id | VARCHAR(36) | PK |
+| project_id | VARCHAR(36) | NOT NULL, UNIQUE, FK → projects.id |
+| population_description | TEXT | |
+| sample_size_planned | INTEGER | |
+| sample_size_current | INTEGER | NOT NULL, default 0 |
+| sampling_method | VARCHAR(100) | |
+| inclusion_criteria | TEXT | |
+| exclusion_criteria | TEXT | |
+| metadata_json | JSON | |
 | created_at / updated_at | DATETIME | |
 | deleted_at | DATETIME | soft delete |
 
@@ -378,13 +408,13 @@ Unidad raíz. **No tiene FK a usuarios.**
 
 ## Conclusión sobre usuarios / autenticación
 
-Colmena, en su estado actual, es un sistema **single-tenant sin control de acceso**:
+Colmena modela usuarios vía **cross-login con AppThesis**:
 
-- No modela usuarios ni cuentas.
-- No tiene login, registro, sesiones ni contraseñas.
-- No asocia proyectos a propietarios.
-- La API y el frontend asumen un único contexto de trabajo confiable (uso local).
+- Existe tabla `users` (espejo de cuentas de AppThesis; sin contraseñas propias).
+- `POST /api/v1/auth/appthesis` valida un JWT de AppThesis y crea/actualiza el usuario.
+- `projects.user_id` (NOT NULL) vincula cada proyecto a su dueño; se asigna desde el
+  usuario autenticado al crear (`Authorization: Bearer`).
 
-**Pendiente para producción** (si se requiere multiusuario): tabla `users`, hashing de
-contraseñas, sesiones/JWT, propiedad `owner_id` en `projects`, y middleware de
-autorización en los routers de FastAPI.
+**Pendiente:** owner-scoping de las lecturas (que cada usuario vea solo sus proyectos)
+y, opcionalmente, cachear la validación del JWT para no golpear a thesis-backend en cada
+request.

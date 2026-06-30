@@ -6,8 +6,8 @@ import { formatDate, formatNumber } from "../../utils/formatters";
 import { ProjectMetricCard } from "./ProjectMetricCard";
 
 function deriveMetrics(project: Project) {
-  const current = project.sample_size_current ?? 0;
-  const planned = project.sample_size_planned ?? 0;
+  const current = project.demographics?.sample_size_current ?? 0;
+  const planned = project.demographics?.sample_size_planned ?? 0;
   const progress = planned > 0 ? Math.min(100, Math.round((current / planned) * 100)) : 0;
   return {
     responses: formatNumber(current, 0),
@@ -47,7 +47,7 @@ export function ProjectSummaryAccordion({
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-5 text-sm text-muted">
-              <span>{formatNumber(project.sample_size_current, 0)} respuestas</span>
+              <span>{formatNumber(project.demographics?.sample_size_current ?? 0, 0)} respuestas</span>
               <span>Actualizado {formatDate(project.updated_at)}</span>
             </div>
           </div>

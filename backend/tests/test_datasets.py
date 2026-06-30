@@ -9,11 +9,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 def create_project(client: TestClient) -> dict:
     response = client.post(
         "/api/v1/projects",
-        json={
-            "title": "Proyecto dataset",
-            "research_type": "correlacional",
-            "approach": "cuantitativo",
-        },
+        json={"title": "Proyecto dataset"},
     )
     assert response.status_code == 201
     return response.json()

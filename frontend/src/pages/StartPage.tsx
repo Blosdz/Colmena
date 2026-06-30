@@ -180,7 +180,7 @@ export function StartPage() {
                       {project.title}
                     </h3>
                     <p className="text-[12px] text-muted">
-                      {project.research_type || "Sin tipo"} · {project.approach || "Cuantitativo"}
+                      {project.type_research?.name || "Sin tipo"} · {project.approach?.name || "Cuantitativo"}
                     </p>
                   </div>
                   <ArrowRight className="h-4 w-4 shrink-0 text-muted/30 transition group-hover:text-amber group-hover:translate-x-0.5" />

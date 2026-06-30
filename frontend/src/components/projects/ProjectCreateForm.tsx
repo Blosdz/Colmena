@@ -1,10 +1,19 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
+import { listApproaches, listResearchTypes, type CatalogItem } from "../../api/catalogs";
 import type { ProjectCreatePayload } from "../../types/project";
 import { PrimaryAction } from "../ui/PrimaryAction";
 
-type ProjectFormState = ProjectCreatePayload & {
+type ProjectFormState = {
+  title: string;
+  type_research_id: string;
+  approach_id: string;
+  institution: string;
+  faculty: string;
+  career: string;
+  sample_size_planned: number | null;
+  population_description: string;
   author: string;
   intention: string;
   objective: string;
@@ -15,13 +24,13 @@ type ProjectFormState = ProjectCreatePayload & {
 
 const initialState: ProjectFormState = {
   title: "",
-  research_type: "",
-  design_type: "",
-  approach: "cuantitativo",
+  type_research_id: "",
+  approach_id: "",
   institution: "",
   faculty: "",
   career: "",
   sample_size_planned: null,
+  population_description: "",
   author: "",
   intention: "",
   objective: "",
@@ -54,17 +63,30 @@ function Field({
 export function ProjectCreateForm({ onSubmit, isLoading, collapsible = true }: Props) {
   const [formState, setFormState] = useState<ProjectFormState>(initialState);
   const [isOpen, setIsOpen] = useState(!collapsible);
+  const [researchTypes, setResearchTypes] = useState<CatalogItem[]>([]);
+  const [approaches, setApproaches] = useState<CatalogItem[]>([]);
+
+  useEffect(() => {
+    listResearchTypes()
+      .then((res) => setResearchTypes(res.items))
+      .catch(() => setResearchTypes([]));
+    listApproaches()
+      .then((res) => setApproaches(res.items))
+      .catch(() => setApproaches([]));
+  }, []);
 
   const submit = () => {
     onSubmit({
       title: formState.title,
-      research_type: formState.research_type,
-      design_type: formState.design_type,
-      approach: formState.approach,
+      type_research_id: formState.type_research_id || undefined,
+      approach_id: formState.approach_id || undefined,
       institution: formState.institution,
       faculty: formState.faculty,
       career: formState.career,
-      sample_size_planned: formState.sample_size_planned,
+      demographics: {
+        population_description: formState.population_description || undefined,
+        sample_size_planned: formState.sample_size_planned,
+      },
     });
   };
 
@@ -123,25 +145,33 @@ export function ProjectCreateForm({ onSubmit, isLoading, collapsible = true }: P
                   <Field label="Tipo de investigación *">
                     <select
                       className="colmena-input w-full border border-border bg-white px-4"
-                      value={formState.research_type || ""}
-                      onChange={(event) => setFormState((current) => ({ ...current, research_type: event.target.value }))}
+                      value={formState.type_research_id}
+                      onChange={(event) =>
+                        setFormState((current) => ({ ...current, type_research_id: event.target.value }))
+                      }
                     >
                       <option value="">Seleccionar tipo de investigación</option>
-                      <option value="descriptiva">Descriptiva</option>
-                      <option value="correlacional">Correlacional</option>
-                      <option value="comparativa">Comparativa</option>
-                      <option value="explicativa">Explicativa</option>
+                      {researchTypes.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
                     </select>
                   </Field>
                   <Field label="Enfoque *">
                     <select
                       className="colmena-input w-full border border-border bg-white px-4"
-                      value={formState.approach || "cuantitativo"}
-                      onChange={(event) => setFormState((current) => ({ ...current, approach: event.target.value }))}
+                      value={formState.approach_id}
+                      onChange={(event) =>
+                        setFormState((current) => ({ ...current, approach_id: event.target.value }))
+                      }
                     >
-                      <option value="cuantitativo">Cuantitativo</option>
-                      <option value="mixto">Mixto</option>
-                      <option value="cualitativo">Cualitativo</option>
+                      <option value="">Seleccionar enfoque</option>
+                      {approaches.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
                     </select>
                   </Field>
 
@@ -211,6 +241,16 @@ export function ProjectCreateForm({ onSubmit, isLoading, collapsible = true }: P
                             ...current,
                             sample_size_planned: event.target.value ? Number(event.target.value) : null,
                           }))
+                        }
+                      />
+                    </Field>
+                    <Field label="Población">
+                      <input
+                        className="colmena-input w-full border border-border px-4"
+                        placeholder="Ej. Estudiantes de psicología de 5° ciclo"
+                        value={formState.population_description}
+                        onChange={(event) =>
+                          setFormState((current) => ({ ...current, population_description: event.target.value }))
                         }
                       />
                     </Field>

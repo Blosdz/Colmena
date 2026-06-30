@@ -2,16 +2,41 @@ import os
 from pathlib import Path
 
 import pytest
+from fastapi import Depends
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import close_all_sessions
+from sqlalchemy.orm import Session, close_all_sessions
 
 os.environ["COLMENA_DB_PATH"] = "./data/db/colmena_test.db"
 
-from app.core.database import Base, engine  # noqa: E402
+import app.models  # noqa: E402,F401  (registra todas las tablas para create_all)
+from app.core.database import Base, engine, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models.user import User  # noqa: E402
+from app.routers.deps import get_current_user  # noqa: E402
 
 
 TEST_DB_FILE = Path(__file__).resolve().parents[1] / "data" / "db" / "colmena_test.db"
+TEST_USER_ID = "00000000-0000-0000-0000-0000000000aa"
+
+
+def _override_current_user(db: Session = Depends(get_db)) -> User:
+    """Sustituye la validacion de JWT por un usuario de prueba persistido."""
+    user = db.get(User, TEST_USER_ID)
+    if user is None:
+        user = User(
+            id=TEST_USER_ID,
+            name="Usuario Test",
+            username="test",
+            email="test@colmena.local",
+            status="active",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+app.dependency_overrides[get_current_user] = _override_current_user
 
 
 @pytest.fixture(scope="module")

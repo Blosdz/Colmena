@@ -14,6 +14,7 @@ from app.models.analysis_run import AnalysisRun
 from app.models.export_artifact import ExportArtifact
 from app.models.form import Form
 from app.schemas.chart_image import (
+    ChartImageBase64Read,
     ChartImageDeleteResponse,
     ChartImageListRead,
     ChartImageRead,
@@ -22,7 +23,7 @@ from app.schemas.chart_image import (
 )
 from app.services.dataset_service import DatasetService
 from app.utils.file_safety import ensure_path_within, sanitize_file_name
-from app.utils.image_data import decode_chart_data_url
+from app.utils.image_data import PNG_PREFIX, SVG_PREFIX, decode_chart_data_url
 
 
 class ChartImageService:
@@ -123,6 +124,7 @@ class ChartImageService:
             file_path=output_path.relative_to(self.settings.backend_dir).as_posix(),
             mime_type=self._mime_type(payload.format),
             file_size_bytes=output_path.stat().st_size,
+            data_base64=payload.data_url,
             metadata_json=self._metadata_summary(payload),
         )
         self.db.add(artifact)
@@ -154,6 +156,31 @@ class ChartImageService:
     def get_chart_image(self, form_id: str, artifact_id: str) -> ChartImageRead:
         artifact = self._get_artifact(form_id, artifact_id)
         return self._artifact_to_read(artifact)
+
+    def get_chart_image_base64(self, form_id: str, artifact_id: str) -> ChartImageBase64Read:
+        artifact = self._get_artifact(form_id, artifact_id)
+        data_base64 = artifact.data_base64
+        if not data_base64:
+            # Fallback para artefactos viejos: releer el archivo de disco y re-codificar.
+            import base64
+
+            file_path = ensure_path_within(
+                self.exports_dir, self.settings.backend_dir / artifact.file_path
+            )
+            if not file_path.exists():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Chart image data not available",
+                )
+            prefix = PNG_PREFIX if artifact.artifact_type == "chart_image_png" else SVG_PREFIX
+            encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
+            data_base64 = f"{prefix}{encoded}"
+        return ChartImageBase64Read(
+            artifact_id=artifact.id,
+            form_id=artifact.form_id or "",
+            mime_type=artifact.mime_type or "image/png",
+            data_base64=data_base64,
+        )
 
     def delete_chart_image(self, form_id: str, artifact_id: str) -> ChartImageDeleteResponse:
         artifact = self._get_artifact(form_id, artifact_id)

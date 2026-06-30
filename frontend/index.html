@@ -9,8 +9,106 @@
       content="Colmena: plataforma web para formularios, analitica estadistica, tablas APA, graficos y reportes academicos."
     />
     <title>Colmena</title>
+    <style>
+      #page-loader {
+        position: fixed;
+        inset: 0;
+        background: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        transition: opacity 0.5s ease, visibility 0.5s ease;
+      }
+      #page-loader.hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      #page-loader svg {
+        width: 260px;
+        height: 260px;
+        overflow: visible;
+      }
+      /* Each hex is dim by default, then lights up in sequence.
+         Cycle = 2.4s. Order: LEFT (0s) -> TOP (0.8s) -> RIGHT (1.6s) */
+      #page-loader .hex {
+        opacity: 0.18;
+        animation: page-loader-light-up 2.4s ease-in-out infinite;
+      }
+      #page-loader .hex-left {
+        animation-delay: 0s;
+      }
+      #page-loader .hex-top {
+        animation-delay: 0.8s;
+      }
+      #page-loader .hex-right {
+        animation-delay: 1.6s;
+      }
+      @keyframes page-loader-light-up {
+        0% {
+          opacity: 0.18;
+        }
+        15% {
+          opacity: 1;
+        }
+        33% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.18;
+        }
+        100% {
+          opacity: 0.18;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #page-loader .hex {
+          animation: none;
+          opacity: 1;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="page-loader" role="status" aria-label="Cargando">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600">
+        <defs>
+          <linearGradient id="L-y-top" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FFD500"/><stop offset="100%" stop-color="#FFC000"/></linearGradient>
+          <linearGradient id="L-y-right" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#E6A800"/><stop offset="100%" stop-color="#CC9600"/></linearGradient>
+          <linearGradient id="L-y-left" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FFB300"/><stop offset="100%" stop-color="#E69500"/></linearGradient>
+          <linearGradient id="L-o-top" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FF7B00"/><stop offset="100%" stop-color="#FF6200"/></linearGradient>
+          <linearGradient id="L-o-right" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#E64A00"/><stop offset="100%" stop-color="#CC3F00"/></linearGradient>
+          <linearGradient id="L-o-left" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FF5500"/><stop offset="100%" stop-color="#D94000"/></linearGradient>
+          <linearGradient id="L-t-top" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00D2D6"/><stop offset="100%" stop-color="#00BCC0"/></linearGradient>
+          <linearGradient id="L-t-right" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#009EA3"/><stop offset="100%" stop-color="#00858A"/></linearGradient>
+          <linearGradient id="L-t-left" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00B5B8"/><stop offset="100%" stop-color="#009194"/></linearGradient>
+        </defs>
+        <g transform="translate(450, 235)">
+          <!-- TOP HEX (yellow) -->
+          <g class="hex hex-top" transform="translate(0, -114)">
+            <polygon points="0,-92 80,-46 80,46 0,92 -80,46 -80,-46" fill="url(#L-y-right)"/>
+            <polygon points="0,-92 -80,-46 -80,46 0,0" fill="url(#L-y-left)"/>
+            <polygon points="0,-92 80,-46 0,0" fill="url(#L-y-top)"/>
+            <polygon points="0,-64 55,-32 55,32 0,64 -55,32 -55,-32" fill="#FFFFFF"/>
+          </g>
+          <!-- BOTTOM LEFT HEX (orange) -->
+          <g class="hex hex-left" transform="translate(-97, 54)">
+            <polygon points="0,-92 80,-46 80,46 0,92 -80,46 -80,-46" fill="url(#L-o-right)"/>
+            <polygon points="0,-92 -80,-46 -80,46 0,0" fill="url(#L-o-left)"/>
+            <polygon points="0,-92 80,-46 0,0" fill="url(#L-o-top)"/>
+            <polygon points="0,-64 55,-32 55,32 0,64 -55,32 -55,-32" fill="#FFFFFF"/>
+          </g>
+          <!-- BOTTOM RIGHT HEX (teal) -->
+          <g class="hex hex-right" transform="translate(97, 54)">
+            <polygon points="0,-92 80,-46 80,46 0,92 -80,46 -80,-46" fill="url(#L-t-right)"/>
+            <polygon points="0,-92 -80,-46 -80,46 0,0" fill="url(#L-t-left)"/>
+            <polygon points="0,-92 80,-46 0,0" fill="url(#L-t-top)"/>
+            <polygon points="0,-64 55,-32 55,32 0,64 -55,32 -55,-32" fill="#FFFFFF"/>
+          </g>
+        </g>
+      </svg>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

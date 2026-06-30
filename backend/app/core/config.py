@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     db_path: str = Field(default="./data/db/colmena.db", alias="COLMENA_DB_PATH")
     public_base_url: str = Field(default="http://127.0.0.1:8080", alias="COLMENA_PUBLIC_BASE_URL")
     api_v1_prefix: str = "/api/v1"
+    thesis_api_base_url: str = Field(
+        default="http://localhost:3000", alias="THESIS_API_BASE_URL"
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

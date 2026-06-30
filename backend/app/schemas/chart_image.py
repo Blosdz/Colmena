@@ -71,3 +71,10 @@ class ChartImageUploadResponse(BaseModel):
 class ChartImageDeleteResponse(BaseModel):
     status: str
     artifact_id: str
+
+
+class ChartImageBase64Read(BaseModel):
+    artifact_id: str
+    form_id: str
+    mime_type: str
+    data_base64: str

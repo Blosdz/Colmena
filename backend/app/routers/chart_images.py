@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.schemas.chart_image import (
+    ChartImageBase64Read,
     ChartImageDeleteResponse,
     ChartImageListRead,
     ChartImageRead,
@@ -42,6 +43,18 @@ def list_word_ready_chart_images(
     service: ChartImageService = Depends(get_chart_image_service),
 ) -> ChartImageListRead:
     return service.list_chart_images(form_id, png_only=True)
+
+
+@router.get(
+    "/api/v1/forms/{form_id}/chart-images/{artifact_id}/base64",
+    response_model=ChartImageBase64Read,
+)
+def get_chart_image_base64(
+    form_id: str,
+    artifact_id: str,
+    service: ChartImageService = Depends(get_chart_image_service),
+) -> ChartImageBase64Read:
+    return service.get_chart_image_base64(form_id, artifact_id)
 
 
 @router.get("/api/v1/forms/{form_id}/chart-images/{artifact_id}", response_model=ChartImageRead)

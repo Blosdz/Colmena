@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, Text
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
@@ -7,20 +7,32 @@ from app.models.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKe
 class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "projects"
 
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     subtitle: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    research_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    design_type: Mapped[str | None] = mapped_column(String(150), nullable=True)
-    approach: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    type_research_id: Mapped[str | None] = mapped_column(
+        ForeignKey("type_research.id"), nullable=True, index=True
+    )
+    design_type_id: Mapped[str | None] = mapped_column(
+        ForeignKey("design_type.id"), nullable=True, index=True
+    )
+    approach_id: Mapped[str | None] = mapped_column(
+        ForeignKey("approach.id"), nullable=True, index=True
+    )
     institution: Mapped[str | None] = mapped_column(String(255), nullable=True)
     faculty: Mapped[str | None] = mapped_column(String(255), nullable=True)
     career: Mapped[str | None] = mapped_column(String(255), nullable=True)
     advisor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    population_description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    sample_size_planned: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    sample_size_current: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft", index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    owner: Mapped["User"] = relationship(back_populates="projects")
+    type_research: Mapped["TypeResearch | None"] = relationship(back_populates="projects")
+    design_type: Mapped["DesignType | None"] = relationship(back_populates="projects")
+    approach: Mapped["Approach | None"] = relationship(back_populates="projects")
+    demographics: Mapped["ProjectDemographics | None"] = relationship(
+        back_populates="project", uselist=False
+    )
 
     variables: Mapped[list["ProjectVariable"]] = relationship(back_populates="project")
     forms: Mapped[list["Form"]] = relationship(back_populates="project")

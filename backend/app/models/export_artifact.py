@@ -22,6 +22,7 @@ class ExportArtifact(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    data_base64: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="export_artifacts")

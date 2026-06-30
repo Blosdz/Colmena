@@ -1,9 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bell, RefreshCcw, Search, Wifi, WifiOff } from "lucide-react";
+import { Bell, LogOut, RefreshCcw, Search, Wifi, WifiOff } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import { apiClient } from "../../api/client";
+import { clearStoredUser, getStoredUser } from "../../auth/session";
 
 export function Topbar() {
+  const navigate = useNavigate();
+  const user = getStoredUser();
   const { data, refetch, isFetching } = useQuery({
     queryKey: ["health"],
     queryFn: () => apiClient.get<{ status?: string }>("/api/health"),
@@ -12,6 +16,13 @@ export function Topbar() {
   });
 
   const connected = data?.status?.toLowerCase() === "ok";
+
+  const handleLogout = () => {
+    clearStoredUser();
+    navigate("/login", { replace: true });
+  };
+
+  const initial = (user?.name || user?.username || "I").charAt(0).toUpperCase();
 
   return (
     <div className="sticky top-0 z-10 h-[64px] border-b border-[#eef0f3] bg-white/80 px-8 backdrop-blur-xl">
@@ -59,15 +70,31 @@ export function Topbar() {
           <div className="mx-1 h-6 w-px bg-[#eef0f3]" />
 
           {/* User */}
-          <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition hover:bg-[#f5f6f8] cursor-pointer">
+          <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition hover:bg-[#f5f6f8]">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber to-honey text-xs font-bold text-white">
-              I
+              {initial}
             </div>
             <div className="text-left hidden lg:block">
-              <p className="text-[13px] font-semibold text-dark leading-tight">Investigador</p>
-              <p className="text-[11px] text-muted leading-tight">admin@colmena.io</p>
+              <p className="text-[13px] font-semibold text-dark leading-tight">
+                {user?.name || "Investigador"}
+              </p>
+              <p className="text-[11px] text-muted leading-tight">
+                {user?.email || "Sin vincular"}
+              </p>
             </div>
           </div>
+
+          {user && (
+            <button
+              aria-label="Cerrar sesión"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#eef0f3] bg-white text-muted transition hover:bg-red-50 hover:text-red-500"
+              onClick={handleLogout}
+              title="Cerrar sesión"
+              type="button"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </div>

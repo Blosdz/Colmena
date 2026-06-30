@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.models.user import User
+from app.routers.deps import get_current_user
 from app.schemas.project import ProjectCreate, ProjectListResponse, ProjectRead, ProjectUpdate
 from app.services.project_service import ProjectService
 
@@ -16,8 +18,9 @@ def get_project_service(db: Session = Depends(get_db)) -> ProjectService:
 def create_project(
     payload: ProjectCreate,
     service: ProjectService = Depends(get_project_service),
+    current_user: User = Depends(get_current_user),
 ) -> ProjectRead:
-    return service.create_project(payload)
+    return service.create_project(payload, user_id=current_user.id)
 
 
 @router.get("", response_model=ProjectListResponse)

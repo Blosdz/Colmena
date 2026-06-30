@@ -1,12 +1,11 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.database import init_db
 from app.routers.analysis_orchestrator import router as analysis_orchestrator_router
+from app.routers.catalogs import router as catalogs_router
 from app.routers.chart_editor_states import router as chart_editor_states_router
 from app.routers.apa_tables import router as apa_tables_router
+from app.routers.auth import router as auth_router
 from app.routers.categorical_associations import router as categorical_associations_router
 from app.routers.charts import router as charts_router
 from app.routers.chart_images import router as chart_images_router
@@ -26,17 +25,10 @@ from app.routers.statistical_decisions import router as statistical_decisions_ro
 from app.routers.word_reports import router as word_reports_router
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    init_db()
-    yield
-
-
 app = FastAPI(
     title="Colmena API",
     version="0.1.0",
     description="API base para la plataforma academica Colmena.",
-    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -55,6 +47,8 @@ app.add_middleware(
 )
 
 app.include_router(health_router, prefix="/api", tags=["health"])
+app.include_router(auth_router)
+app.include_router(catalogs_router)
 app.include_router(projects_router)
 app.include_router(project_variables_router)
 app.include_router(forms_router)

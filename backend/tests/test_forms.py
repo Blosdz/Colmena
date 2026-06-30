@@ -4,11 +4,7 @@ from fastapi.testclient import TestClient
 def create_project(client: TestClient) -> dict:
     response = client.post(
         "/api/v1/projects",
-        json={
-            "title": "Proyecto formulario",
-            "research_type": "correlacional",
-            "approach": "cuantitativo",
-        },
+        json={"title": "Proyecto formulario"},
     )
     assert response.status_code == 201
     return response.json()

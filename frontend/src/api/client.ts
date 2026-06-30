@@ -1,3 +1,4 @@
+import { getStoredToken } from "../auth/session";
 import { env } from "../config/env";
 
 export class ApiError extends Error {
@@ -33,10 +34,12 @@ function buildUrl(path: string, query?: RequestOptions["query"]) {
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { query, headers, ...init } = options;
+  const token = getStoredToken();
   const response = await fetch(buildUrl(path, query), {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
   });

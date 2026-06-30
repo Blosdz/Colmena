@@ -197,16 +197,21 @@ class WordReportService:
             f"Asesor: {self._safe_text(project.advisor_name)}.",
         ]
         if include_methodology_summary:
+            demographics = project.demographics
             lines.extend(
                 [
-                    f"Tipo de investigacion: {self._safe_text(project.research_type)}.",
-                    f"Diseno: {self._safe_text(project.design_type)}.",
-                    f"Enfoque: {self._safe_text(project.approach)}.",
-                    f"Poblacion: {self._safe_text(project.population_description)}.",
-                    f"Muestra planificada: {self._safe_text(project.sample_size_planned)}.",
+                    f"Tipo de investigacion: {self._safe_text(self._catalog_name(project.type_research))}.",
+                    f"Diseno: {self._safe_text(self._catalog_name(project.design_type))}.",
+                    f"Enfoque: {self._safe_text(self._catalog_name(project.approach))}.",
+                    f"Poblacion: {self._safe_text(demographics.population_description if demographics else None)}.",
+                    f"Muestra planificada: {self._safe_text(demographics.sample_size_planned if demographics else None)}.",
                 ]
             )
         return lines
+
+    @staticmethod
+    def _catalog_name(catalog: Any) -> str | None:
+        return catalog.name if catalog is not None else None
 
     def _dataset_summary_lines(self, form: Form, include_discarded: bool) -> tuple[list[str], list[str]]:
         summary = self.analysis_orchestrator_service.get_analysis_summary(form.id)

@@ -58,6 +58,12 @@ def test_chart_images_and_word_integration(client):
     assert image_metadata.status_code == 200
     assert image_metadata.json()["format"] == "png"
 
+    image_base64 = client.get(f"/api/v1/forms/{form_id}/chart-images/{artifact_id}/base64")
+    assert image_base64.status_code == 200
+    base64_body = image_base64.json()
+    assert base64_body["artifact_id"] == artifact_id
+    assert base64_body["data_base64"] == f"data:image/png;base64,{PNG_BASE64}"
+
     report_with_images = client.post(
         f"/api/v1/forms/{form_id}/word-reports/generate",
         json={

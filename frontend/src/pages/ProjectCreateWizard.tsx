@@ -259,11 +259,9 @@ export function ProjectCreateWizard() {
         setSavingStatus("Iniciando registro de proyecto científico...");
         const project = await createProject({
           title: draft.title || "Proyecto sin título",
-          research_type: "Cuantitativo",
-          approach: "Investigación Empírica",
-          sample_size_planned: 100,
           advisor_name: draft.author || "",
-          notes: draft.description || ""
+          notes: draft.description || "",
+          demographics: { sample_size_planned: 100 }
         });
         projectId = project.id;
       } else {

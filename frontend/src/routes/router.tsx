@@ -13,6 +13,9 @@ import { ProjectLinkResponsesPage } from "../pages/ProjectLinkResponsesPage";
 import { ProjectFormDesigner } from "../pages/ProjectFormDesigner";
 import { ProjectTelemetryPage } from "../pages/ProjectTelemetryPage";
 import { PublicFormPage } from "../pages/PublicFormPage";
+import { LoginPage } from "../pages/LoginPage";
+import { AuthCallbackPage } from "../pages/AuthCallbackPage";
+import { RequireAuth } from "../auth/RequireAuth";
 
 function StudyToProjectRedirect({ mode }: { mode: "workspace" | "builder" | "form" | "publish" | "responses" | "analysis" | "presentation" }) {
   const { projectId = "" } = useParams();
@@ -30,8 +33,20 @@ function StudyToProjectRedirect({ mode }: { mode: "workspace" | "builder" | "for
 
 export const router = createBrowserRouter([
   {
+    path: "/login",
+    element: <LoginPage />,
+  },
+  {
+    path: "/auth/callback",
+    element: <AuthCallbackPage />,
+  },
+  {
     path: "/",
-    element: <App />,
+    element: (
+      <RequireAuth>
+        <App />
+      </RequireAuth>
+    ),
     children: [
       { index: true, element: <StartPage /> },
       { path: "project/new", element: <ProjectCreateWizard /> },
