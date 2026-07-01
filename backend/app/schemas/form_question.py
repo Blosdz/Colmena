@@ -19,7 +19,7 @@ class FormQuestionBase(BaseModel):
     is_reverse_scored: bool = False
     min_value: float | None = None
     max_value: float | None = None
-    sort_order: int = Field(default=0, ge=0)
+    sort_order: int = 0
     validation_json: dict | list | None = None
     config_json: dict | list | None = None
 

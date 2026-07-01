@@ -40,6 +40,7 @@ import {
   listInstruments,
   listDimensions,
   listQuestionOptions,
+  publishForm,
 } from "../api/forms";
 
 const TAB_LABELS: Record<VariableTab, string> = {
@@ -210,6 +211,7 @@ export function ProjectCreateWizard() {
       void loadProjectData(routeProjectId);
     } else {
       store.reset();
+      store.setShowProjectInfo(true);
     }
   }, [routeProjectId]);
 
@@ -406,12 +408,18 @@ export function ProjectCreateWizard() {
             }
           }
         }
+
+        // 2h. Publish the form so it gets an accessible public URL right away
+        if (variable.items.length > 0) {
+          setSavingStatus(`Publicando formulario: ${variable.name}...`);
+          await publishForm(formId);
+        }
       }
 
       setSavingStatus("¡Estructura guardada con éxito!");
       setIsSaving(false);
       store.reset();
-      navigate(`/project/${projectId}/form`);
+      navigate(`/project/${projectId}/link`);
       return;
     } catch (err: any) {
       console.error(err);
@@ -422,6 +430,23 @@ export function ProjectCreateWizard() {
 
   const handleDataParsed = (newItems: ParsedQuestion[]) => {
     store.addItems(activeVariable.id, newItems);
+  };
+
+  const handleAddManualItem = () => {
+    const nextIndex = activeVariable.items.length + 1;
+    const newItem: ParsedQuestion = {
+      id: crypto.randomUUID(),
+      code: `P${nextIndex}`,
+      text: "",
+      dimensionName: "",
+      type: "likert",
+      scale: "",
+      reversed: false,
+      required: true,
+      scored: true,
+      status: "review",
+    };
+    store.addItems(activeVariable.id, [newItem]);
   };
 
   const handleToggleSelect = (id: string) => {
@@ -522,6 +547,12 @@ export function ProjectCreateWizard() {
             {showProjectInfo && (
               <div className="flex items-center gap-2 pr-3 mr-2 border-r border-colmena-border shrink-0 animate-colmena-fade-in">
                 <input
+                  className="colmena-input h-7 text-[11px] w-40 font-semibold"
+                  placeholder="Nombre del proyecto *"
+                  value={draft.title}
+                  onChange={(e) => store.updateProject({ title: e.target.value })}
+                />
+                <input
                   className="colmena-input h-7 text-[11px] w-28"
                   placeholder="Investigador"
                   value={draft.author}
@@ -586,7 +617,18 @@ export function ProjectCreateWizard() {
 
               {activeTab === "items" && (
                 <div className="flex-1 min-h-0 flex flex-col gap-3">
-                  <BulkQuestionImporter onDataParsed={handleDataParsed} />
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <BulkQuestionImporter onDataParsed={handleDataParsed} />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddManualItem}
+                      className="colmena-button-sm-primary shrink-0"
+                    >
+                      + Agregar ítem
+                    </button>
+                  </div>
                   <BulkQuestionTable
                     questions={activeVariable.items}
                     selectedIds={selectedIds}

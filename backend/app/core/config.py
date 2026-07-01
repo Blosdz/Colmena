@@ -14,12 +14,17 @@ class Settings(BaseSettings):
     thesis_api_base_url: str = Field(
         default="http://localhost:3000", alias="THESIS_API_BASE_URL"
     )
+    cors_extra_origins: str = Field(default="", alias="COLMENA_CORS_EXTRA_ORIGINS")
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def cors_extra_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_extra_origins.split(",") if origin.strip()]
 
     @property
     def backend_dir(self) -> Path:

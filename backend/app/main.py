@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import get_settings
 from app.routers.analysis_orchestrator import router as analysis_orchestrator_router
 from app.routers.catalogs import router as catalogs_router
 from app.routers.chart_editor_states import router as chart_editor_states_router
@@ -40,6 +41,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:5174",
         "http://localhost:5175",
+        *get_settings().cors_extra_origins_list,
     ],
     allow_credentials=True,
     allow_methods=["*"],
