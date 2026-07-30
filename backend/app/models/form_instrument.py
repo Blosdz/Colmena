@@ -17,11 +17,19 @@ class FormInstrument(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin)
         nullable=True,
         index=True,
     )
+    # Escala global del instrumento: la heredan los ítems sin escala propia.
+    default_scale_id: Mapped[str | None] = mapped_column(
+        ForeignKey("scales.id"),
+        nullable=True,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     acronym: Mapped[str | None] = mapped_column(String(50), nullable=True)
     author: Mapped[str | None] = mapped_column(String(255), nullable=True)
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    objective: Mapped[str | None] = mapped_column(Text, nullable=True)
+    application_mode: Mapped[str | None] = mapped_column(String(50), nullable=True)
     response_scale_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     scoring_method: Mapped[str | None] = mapped_column(String(255), nullable=True)
     reverse_scoring_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

@@ -576,6 +576,8 @@ class CorrelationService:
             warnings=warnings,
             normality_context={"x": x_target.normality_result, "y": y_target.normality_result},
             assumptions=engine_result["assumptions"],
+            x_values=diagnostics["x_valid"],
+            y_values=diagnostics["y_valid"],
         )
         analysis_run = None
         if request.store_result:

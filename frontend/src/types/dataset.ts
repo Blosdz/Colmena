@@ -49,3 +49,58 @@ export interface DatasetExportList {
   items: DatasetExportArtifact[];
   total: number;
 }
+
+export interface DataDictionaryOption {
+  id: string;
+  label: string;
+  value?: string | null;
+  score?: number | null;
+  sort_order: number;
+}
+
+export interface DataDictionaryItem {
+  question_id: string;
+  column_name: string;
+  code?: string | null;
+  label: string;
+  question_type: string;
+  question_role: string;
+  measurement_level: string;
+  data_type: string;
+  is_required: boolean;
+  is_scored: boolean;
+  is_reverse_scored: boolean;
+  section_title?: string | null;
+  instrument_name?: string | null;
+  dimension_name?: string | null;
+  project_variable_name?: string | null;
+  options: DataDictionaryOption[];
+}
+
+export interface DataDictionary {
+  form_id: string;
+  items: DataDictionaryItem[];
+}
+
+// Edición de celda en la grilla de captura manual (upsert).
+export interface AnswerUpsertPayload {
+  raw_value?: string | null;
+  clear?: boolean;
+  option_id?: string | null;
+  value_text?: string | null;
+  value_number?: number | null;
+  value_date?: string | null;
+}
+
+export interface AnswerUpsertResult {
+  id: string;
+  response_id: string;
+  question_id: string;
+  option_id?: string | null;
+  value_text?: string | null;
+  value_number?: number | null;
+  value_date?: string | null;
+  value_json?: unknown;
+  score_value?: number | null;
+  updated_at: string;
+}

@@ -27,3 +27,10 @@ export function listProjectVariables(projectId: string) {
 export function createProjectVariable(projectId: string, payload: ProjectVariableCreatePayload) {
   return apiClient.post<ProjectVariable>(`/api/v1/projects/${projectId}/variables`, payload);
 }
+
+export function updateProjectVariable(
+  variableId: string,
+  payload: Partial<ProjectVariableCreatePayload>,
+) {
+  return apiClient.patch<ProjectVariable>(`/api/v1/project-variables/${variableId}`, payload);
+}

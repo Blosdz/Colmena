@@ -55,6 +55,44 @@ export interface DescriptiveOverview {
   warnings: string[];
 }
 
+export interface DimensionDescriptive {
+  dimension_id: string;
+  instrument_id: string;
+  name: string;
+  item_count: number;
+  scored_item_count: number;
+  aggregation: string;
+  numeric?: NumericSummary | null;
+  importance?: NumericSummary | null;
+  warnings: string[];
+}
+
+export interface InstrumentDescriptive {
+  instrument_id: string;
+  name: string;
+  acronym?: string | null;
+  item_count: number;
+  scored_item_count: number;
+  aggregation: string;
+  dimensions: DimensionDescriptive[];
+  numeric?: NumericSummary | null;
+  warnings: string[];
+}
+
+export interface ProjectVariableDescriptive {
+  variable_id: string;
+  name: string;
+  variable_role: string;
+  measurement_level: string;
+  data_type: string;
+  question_count: number;
+  scored_question_count: number;
+  questions: QuestionDescriptive[];
+  numeric?: NumericSummary | null;
+  frequencies: FrequencyRow[];
+  warnings: string[];
+}
+
 export interface DescriptiveReport {
   form_id: string;
   project_id: string;
@@ -62,9 +100,15 @@ export interface DescriptiveReport {
   decimals: number;
   overview: DescriptiveOverview;
   questions: QuestionDescriptive[];
-  dimensions: Array<Record<string, unknown>>;
-  instruments: Array<Record<string, unknown>>;
-  project_variables: Array<Record<string, unknown>>;
+  dimensions: DimensionDescriptive[];
+  instruments: InstrumentDescriptive[];
+  project_variables: ProjectVariableDescriptive[];
+}
+
+export interface DimensionDescriptiveListResponse {
+  form_id: string;
+  aggregation: string;
+  items: DimensionDescriptive[];
 }
 
 export interface AnalysisTarget {
@@ -105,6 +149,16 @@ export interface AnalysisSummaryRead {
   warnings: string[];
 }
 
+export interface ApaTableBlock {
+  table_type: string;
+  suggested_title: string;
+  source_result: string;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  notes: string[];
+  ready_for_apa: boolean;
+}
+
 export interface OrchestratedAnalysis {
   form_id: string;
   project_id: string;
@@ -132,7 +186,7 @@ export interface OrchestratedAnalysis {
     summary: string;
     payload?: unknown;
   }>;
-  apa_table_blocks: Array<Record<string, unknown>>;
+  apa_table_blocks: ApaTableBlock[];
   chart_blocks: Array<Record<string, unknown>>;
   export_blocks: Array<Record<string, unknown>>;
   raw_results_summary: Record<string, unknown>;

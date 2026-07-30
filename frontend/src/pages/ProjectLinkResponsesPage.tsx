@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { closeForm, getPublicLink, listProjectForms, listResponses, publishForm, reopenForm } from "../api/forms";
 import { getProject } from "../api/projects";
+import { buildPublicFormUrl } from "../config/env";
 import { PageHeader } from "../components/layout/PageHeader";
 import { ProjectMissingState } from "../components/study/ProjectMissingState";
 import { useActiveStudy } from "../components/study/useActiveStudy";
@@ -119,8 +120,8 @@ export function ProjectLinkResponsesPage() {
     return <ErrorState message={(responsesQuery.error as Error).message} />;
   }
 
-  const frontendPublicUrl = publicLinkQuery.data?.public_slug 
-    ? `${window.location.origin}/public/forms/${publicLinkQuery.data.public_slug}` 
+  const frontendPublicUrl = publicLinkQuery.data?.public_slug
+    ? buildPublicFormUrl(publicLinkQuery.data.public_slug)
     : "";
 
   const isPublished = primaryForm.status === "published" && Boolean(frontendPublicUrl);

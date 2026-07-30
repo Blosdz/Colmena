@@ -43,7 +43,7 @@ def get_form_descriptives(
     form_id: str,
     include_discarded: bool = Query(default=False),
     decimals: int = Query(default=3, ge=0, le=6),
-    score_aggregation: str = Query(default="mean", pattern="^(sum|mean)$"),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
     service: DescriptiveService = Depends(get_descriptive_service),
 ) -> FormDescriptiveReportRead:
     return service.get_form_descriptives(
@@ -83,7 +83,7 @@ def get_dimension_descriptives(
     form_id: str,
     include_discarded: bool = Query(default=False),
     decimals: int = Query(default=3, ge=0, le=6),
-    score_aggregation: str = Query(default="mean", pattern="^(sum|mean)$"),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
     service: DescriptiveService = Depends(get_descriptive_service),
 ) -> DimensionDescriptiveListRead:
     items = service.get_dimension_descriptives(
@@ -100,7 +100,7 @@ def get_instrument_descriptives(
     form_id: str,
     include_discarded: bool = Query(default=False),
     decimals: int = Query(default=3, ge=0, le=6),
-    score_aggregation: str = Query(default="mean", pattern="^(sum|mean)$"),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
     service: DescriptiveService = Depends(get_descriptive_service),
 ) -> InstrumentDescriptiveListRead:
     items = service.get_instrument_descriptives(

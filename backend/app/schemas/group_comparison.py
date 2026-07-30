@@ -38,7 +38,7 @@ class GroupComparisonRequest(BaseModel):
     alpha: float = Field(default=0.05, ge=0.001, le=0.20)
     decimals: int = Field(default=3, ge=0, le=6)
     include_discarded: bool = False
-    score_aggregation: str = Field(default="mean")
+    score_aggregation: str = Field(default="sum")
     store_result: bool = True
 
     @field_validator("method")

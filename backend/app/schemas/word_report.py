@@ -28,13 +28,14 @@ class WordReportGenerateRequest(BaseModel):
     subtitle: str | None = None
     decimals: int = Field(default=3, ge=0, le=6)
     include_discarded: bool = False
-    score_aggregation: str = "mean"
+    score_aggregation: str = "sum"
     include_charts_placeholders: bool = True
     include_chart_images: bool = True
     chart_image_artifact_ids: list[str] | None = None
     chart_image_mode: str = "images_if_available"
     include_plain_language_explanations: bool = True
     include_technical_appendix: bool = False
+    include_instrument_sheet: bool = False
     include_cover: bool = True
     include_methodology_summary: bool = True
     options: dict[str, Any] | None = None

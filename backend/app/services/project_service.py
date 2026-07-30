@@ -35,7 +35,7 @@ class ProjectService:
                 detail=f"{field} '{value}' no existe en el catalogo.",
             )
 
-    def _load(self, project_id: str) -> Project | None:
+    def _load(self, project_id: str, user_id: str | None = None) -> Project | None:
         statement = (
             select(Project)
             .where(Project.id == project_id, Project.deleted_at.is_(None))
@@ -46,6 +46,8 @@ class ProjectService:
                 selectinload(Project.demographics),
             )
         )
+        if user_id is not None:
+            statement = statement.where(Project.user_id == user_id)
         return self.db.scalar(statement)
 
     def create_project(self, payload: ProjectCreate, user_id: str) -> Project:
@@ -64,8 +66,8 @@ class ProjectService:
         self.db.commit()
         return self._load(project.id)
 
-    def get_project(self, project_id: str) -> Project:
-        project = self._load(project_id)
+    def get_project(self, project_id: str, user_id: str) -> Project:
+        project = self._load(project_id, user_id=user_id)
         if project is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -73,10 +75,10 @@ class ProjectService:
             )
         return project
 
-    def list_projects(self, limit: int, offset: int, q: str | None) -> tuple[list[Project], int]:
+    def list_projects(self, user_id: str, limit: int, offset: int, q: str | None) -> tuple[list[Project], int]:
         statement = (
             select(Project)
-            .where(Project.deleted_at.is_(None))
+            .where(Project.deleted_at.is_(None), Project.user_id == user_id)
             .options(
                 selectinload(Project.type_research),
                 selectinload(Project.design_type),
@@ -84,7 +86,11 @@ class ProjectService:
                 selectinload(Project.demographics),
             )
         )
-        count_statement = select(func.count()).select_from(Project).where(Project.deleted_at.is_(None))
+        count_statement = (
+            select(func.count())
+            .select_from(Project)
+            .where(Project.deleted_at.is_(None), Project.user_id == user_id)
+        )
 
         if q:
             query = f"%{q.strip()}%"
@@ -96,8 +102,8 @@ class ProjectService:
         total = int(self.db.scalar(count_statement) or 0)
         return items, total
 
-    def update_project(self, project_id: str, payload: ProjectUpdate) -> Project:
-        project = self.get_project(project_id)
+    def update_project(self, project_id: str, payload: ProjectUpdate, user_id: str) -> Project:
+        project = self.get_project(project_id, user_id)
         update_data = payload.model_dump(exclude_unset=True)
         demographics = update_data.pop("demographics", None)
 
@@ -121,8 +127,8 @@ class ProjectService:
         self.db.commit()
         return self._load(project.id)
 
-    def soft_delete_project(self, project_id: str) -> dict[str, str]:
-        project = self.get_project(project_id)
+    def soft_delete_project(self, project_id: str, user_id: str) -> dict[str, str]:
+        project = self.get_project(project_id, user_id)
         project.deleted_at = datetime.now(timezone.utc)
         self.db.commit()
         return {

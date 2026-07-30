@@ -1,6 +1,9 @@
 import { apiClient } from "./client";
 import type {
+  AnswerUpsertPayload,
+  AnswerUpsertResult,
   CompletenessSummary,
+  DataDictionary,
   DatasetExportArtifact,
   DatasetExportList,
   DatasetPreview,
@@ -31,4 +34,39 @@ export function exportCsv(formId: string) {
 
 export function listFormExports(formId: string) {
   return apiClient.get<DatasetExportList>(`/api/v1/forms/${formId}/exports`);
+}
+
+// ── Grilla de captura manual (vista de datos tipo SPSS) ─────────────────────
+
+export function getManualDataset(formId: string) {
+  return apiClient.get<DatasetPreview>(
+    `/api/v1/forms/${formId}/dataset?mode=value&include_metadata=true&include_discarded=false&limit=1000`,
+  );
+}
+
+export function getDataDictionary(formId: string) {
+  return apiClient.get<DataDictionary>(`/api/v1/forms/${formId}/data-dictionary`);
+}
+
+export function upsertAnswer(responseId: string, questionId: string, payload: AnswerUpsertPayload) {
+  return apiClient.put<AnswerUpsertResult>(
+    `/api/v1/form-responses/${responseId}/answers/${questionId}`,
+    payload,
+  );
+}
+
+export function createManualResponse(formId: string, respondentCode: string) {
+  return apiClient.post<{ id: string }>(`/api/v1/forms/${formId}/responses`, {
+    respondent_code: respondentCode,
+    status: "partial",
+    source: "manual",
+    answers: [],
+  });
+}
+
+export function updateResponseStatus(responseId: string, status: "partial" | "complete" | "discarded") {
+  return apiClient.patch<{ response_id: string; status: string }>(
+    `/api/v1/form-responses/${responseId}/status`,
+    { status },
+  );
 }

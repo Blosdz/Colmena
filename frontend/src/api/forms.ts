@@ -64,6 +64,10 @@ export function listInstruments(formId: string) {
   return apiClient.get<{ items: FormInstrument[]; total: number }>(`/api/v1/forms/${formId}/instruments`);
 }
 
+export function updateInstrument(instrumentId: string, payload: Partial<FormInstrumentPayload>) {
+  return apiClient.patch<FormInstrument>(`/api/v1/form-instruments/${instrumentId}`, payload);
+}
+
 export function createDimension(instrumentId: string, payload: FormDimensionPayload) {
   return apiClient.post<FormDimension>(`/api/v1/form-instruments/${instrumentId}/dimensions`, payload);
 }

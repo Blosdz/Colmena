@@ -6,7 +6,7 @@ export function Select({ className, children, ...props }: PropsWithChildren<Sele
   return (
     <select
       className={cn(
-        "h-11 w-full rounded-2xl border border-border bg-white px-4 text-sm text-dark outline-none transition focus:border-amber focus:ring-2 focus:ring-amber/20",
+        "colmena-select h-11 w-full rounded-2xl border border-border bg-white px-4 text-sm text-dark outline-none transition focus:border-amber focus:ring-2 focus:ring-amber/20 dark:border-white/10 dark:bg-[#20242b] dark:text-gray-100",
         className,
       )}
       {...props}

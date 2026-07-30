@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from fastapi import HTTPException, status
 
+from app.core.realtime import publish_response_event
 from app.models.base import utc_now
 from app.models.form import Form
 from app.models.form_question import FormQuestion
@@ -108,7 +109,16 @@ class ResponseService:
             self.db.add(answer)
 
         self.db.commit()
-        return self._get_response(response.id)
+        result = self._get_response(response.id)
+        publish_response_event(
+            form_id=result.form_id,
+            project_id=result.project_id,
+            response_id=result.id,
+            response_status=result.status,
+            submitted_at=result.submitted_at or result.created_at,
+            source=result.source,
+        )
+        return result
 
     def list_responses(self, form_id: str) -> tuple[list[FormResponse], int]:
         self._get_form(form_id)

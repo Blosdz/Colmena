@@ -40,7 +40,7 @@ class CorrelationRequest(BaseModel):
     alpha: float = Field(default=0.05, ge=0.001, le=0.20)
     decimals: int = Field(default=3, ge=0, le=6)
     include_discarded: bool = False
-    score_aggregation: str = Field(default="mean")
+    score_aggregation: str = Field(default="sum")
     store_result: bool = True
 
     @field_validator("method")
@@ -83,6 +83,8 @@ class CorrelationResultRead(BaseModel):
     warnings: list[str]
     normality_context: dict[str, NormalityTestResultRead | None]
     assumptions: list[str]
+    x_values: list[float] | None = None
+    y_values: list[float] | None = None
 
 
 class CorrelationRunRead(BaseModel):
@@ -96,7 +98,7 @@ class CorrelationMatrixRequest(BaseModel):
     alpha: float = Field(default=0.05, ge=0.001, le=0.20)
     decimals: int = Field(default=3, ge=0, le=6)
     include_discarded: bool = False
-    score_aggregation: str = Field(default="mean")
+    score_aggregation: str = Field(default="sum")
     store_result: bool = True
 
     @field_validator("targets")

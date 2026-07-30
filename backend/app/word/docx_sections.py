@@ -111,6 +111,20 @@ def build_scoring_section(document, intro: str, tables, start_table_number: int)
     return table_number
 
 
+def build_instrument_sheet_section(document, intro: str, tables, start_table_number: int) -> int:
+    heading = document.add_paragraph()
+    apply_heading_style(heading, 1)
+    heading.add_run("Ficha tecnica del instrumento")
+    paragraph = document.add_paragraph()
+    apply_body_style(paragraph)
+    paragraph.add_run(intro)
+    table_number = start_table_number
+    for table in tables:
+        add_apa_table_to_docx(document, table, table_number)
+        table_number += 1
+    return table_number
+
+
 def build_correlation_section(document, intro: str, tables, interpretations: list[str], start_table_number: int) -> int:
     heading = document.add_paragraph()
     apply_heading_style(heading, 1)

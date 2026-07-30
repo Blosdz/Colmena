@@ -28,6 +28,7 @@ from app.services.analysis_orchestrator_service import AnalysisOrchestratorServi
 from app.services.apa_table_service import ApaTableService
 from app.services.chart_service import ChartService
 from app.services.dataset_service import DatasetService
+from app.services.instrument_sheet_service import InstrumentSheetService
 from app.word.docx_builder import add_page_break, create_document
 from app.word.docx_export import (
     build_report_file_name,
@@ -46,10 +47,12 @@ from app.word.docx_sections import (
     build_dataset_section,
     build_descriptive_section,
     build_group_comparison_section,
+    build_instrument_sheet_section,
     build_normality_section,
     build_project_section,
     build_scoring_section,
 )
+from app.word.instrument_sheet_tables import build_instrument_sheet_tables
 
 
 class WordReportService:
@@ -62,6 +65,7 @@ class WordReportService:
         self.chart_service = ChartService(db)
         self.advanced_scoring_service = AdvancedScoringService(db)
         self.analysis_orchestrator_service = AnalysisOrchestratorService(db)
+        self.instrument_sheet_service = InstrumentSheetService(db)
 
     def _get_form(self, form_id: str) -> Form:
         return self.dataset_service._get_form(form_id)
@@ -625,6 +629,40 @@ class WordReportService:
                 warnings=[warning for table in tables["scoring"] for warning in table.warnings],
             )
 
+        if request.include_instrument_sheet:
+            try:
+                sheet = self.instrument_sheet_service.get_instrument_sheet(
+                    form.id,
+                    decimals=request.decimals,
+                    include_discarded=request.include_discarded,
+                )
+                sheet_tables = build_instrument_sheet_tables(sheet)
+                table_number = build_instrument_sheet_section(
+                    document,
+                    "Se documentan la metadata formal del instrumento, sus indicadores de fiabilidad "
+                    "(alfa de Cronbach, fiabilidad compuesta y varianza media extraida) y de supuestos "
+                    "estadisticos (normalidad), junto con los baremos vigentes para su interpretacion.",
+                    sheet_tables,
+                    table_number,
+                )
+                self._append_section(
+                    sections,
+                    section_key="instrument_sheet",
+                    title="Ficha tecnica del instrumento",
+                    included=True,
+                    summary="Se integro la ficha tecnica del instrumento con fiabilidad, normalidad y baremos.",
+                    warnings=sheet.warnings,
+                )
+            except HTTPException:
+                self._append_section(
+                    sections,
+                    section_key="instrument_sheet",
+                    title="Ficha tecnica del instrumento",
+                    included=False,
+                    summary="No fue posible generar la ficha tecnica: el formulario no tiene instrumentos configurados.",
+                    warnings=["instrument_sheet_unavailable"],
+                )
+
         if tables["correlation"]:
             table_number = build_correlation_section(
                 document,
@@ -883,6 +921,7 @@ class WordReportService:
                 "descriptive_results",
                 "normality_results",
                 "scoring_results",
+                "instrument_sheet",
                 "correlation_results",
                 "group_comparison_results",
                 "categorical_association_results",

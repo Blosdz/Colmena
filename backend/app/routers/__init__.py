@@ -14,7 +14,10 @@ from app.routers.normality import router as normality_router
 from app.routers.projects import router as projects_router
 from app.routers.project_variables import router as project_variables_router
 from app.routers.public_forms import router as public_forms_router
+from app.routers.regression import router as regression_router
+from app.routers.reliability import router as reliability_router
 from app.routers.responses import router as responses_router
+from app.routers.scales import router as scales_router
 from app.routers.scoring import router as scoring_router
 from app.routers.statistical_decisions import router as statistical_decisions_router
 from app.routers.word_reports import router as word_reports_router
@@ -36,7 +39,10 @@ __all__ = [
     "projects_router",
     "project_variables_router",
     "public_forms_router",
+    "regression_router",
+    "reliability_router",
     "responses_router",
+    "scales_router",
     "scoring_router",
     "statistical_decisions_router",
     "word_reports_router",

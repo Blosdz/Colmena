@@ -8,6 +8,7 @@ class FormQuestionBase(BaseModel):
     instrument_id: str | None = None
     dimension_id: str | None = None
     project_variable_id: str | None = None
+    scale_id: str | None = None
     code: str | None = Field(default=None, max_length=100)
     help_text: str | None = None
     question_type: str = Field(..., max_length=50)
@@ -75,6 +76,7 @@ class FormQuestionRead(BaseModel):
     instrument_id: str | None
     dimension_id: str | None
     project_variable_id: str | None
+    scale_id: str | None
     code: str | None
     label: str
     help_text: str | None

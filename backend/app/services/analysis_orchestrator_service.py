@@ -518,6 +518,7 @@ class AnalysisOrchestratorService:
             "advanced_scoring": "scoring_summary",
             "score_band_distribution": "score_band_distribution",
             "control_scale_flags": "control_scale_flags",
+            "baremo_variables": "baremo_variables",
         }
         return [
             ApaTableBlockRead(
@@ -526,8 +527,8 @@ class AnalysisOrchestratorService:
                 source_result=source_result,
                 columns=columns,
                 rows=rows,
-                notes=["Tabla pendiente de formateo APA 7 en fase futura."],
-                ready_for_apa=False,
+                notes=["Tabla lista para presentarse en formato de tesis (APA 7)."],
+                ready_for_apa=True,
             )
         ]
 
@@ -1050,6 +1051,10 @@ class AnalysisOrchestratorService:
         analysis_options = self.list_analysis_options(form.id)
         scoring_configs = self.advanced_scoring_service._get_scoring_configs(form.id)
         scoring_results = self.advanced_scoring_service.get_form_score_results(form.id)
+        baremo_resolution = None
+        if scoring_configs and overview.included_responses > 0:
+            baremo_resolution = self.advanced_scoring_service.resolve_variable_baremos(form.id)
+            scoring_results = self.advanced_scoring_service.get_form_score_results(form.id)
         warnings = list(dict.fromkeys([*overview.warnings, *scoring_results.warnings]))
         result_blocks = self.build_result_blocks(
             quality_payload={"overview": overview.model_dump(), "completeness": completeness.model_dump()},
@@ -1065,6 +1070,17 @@ class AnalysisOrchestratorService:
         }
         if scoring_results.scored_responses or scoring_results.control_flags:
             raw_summary["scoring"] = scoring_results.model_dump()
+        if baremo_resolution is not None and baremo_resolution.items:
+            raw_summary["baremo_resolution"] = baremo_resolution.model_dump()
+            result_blocks.append(
+                AnalysisResultBlockRead(
+                    block_type="scoring",
+                    title="Baremos resueltos por variable",
+                    summary="El sistema resolvio el baremo de cada variable puntuada aplicando sus bandas configuradas o la formula de rangos iguales.",
+                    payload=baremo_resolution.model_dump(),
+                )
+            )
+            warnings = list(dict.fromkeys([*warnings, *baremo_resolution.warnings]))
 
         numeric_targets = analysis_options.available_targets["numeric"][: options.max_targets]
         pairwise_limit = (len(numeric_targets) * (len(numeric_targets) - 1)) // 2
@@ -1151,6 +1167,28 @@ class AnalysisOrchestratorService:
                         {"Indicador": "Respuestas con advertencia", "Valor": scoring_results.warning_responses},
                         {"Indicador": "Respuestas invalidas", "Valor": scoring_results.invalid_responses},
                     ],
+                )
+            )
+        if baremo_resolution is not None and baremo_resolution.items:
+            baremo_rows = [
+                {
+                    "Variable": item.variable_label,
+                    "Nivel": level.label,
+                    "Rango": f"{level.min_value} - {level.max_value}",
+                    "n": level.n,
+                    "%": level.percent,
+                    "Interpretacion": level.interpretation or "",
+                }
+                for item in baremo_resolution.items
+                for level in item.levels
+            ]
+            apa_table_blocks.extend(
+                self.build_apa_table_blocks(
+                    "baremo_variables",
+                    title="Baremos por variable del estudio",
+                    source_result="baremo_resolution",
+                    columns=["Variable", "Nivel", "Rango", "n", "%", "Interpretacion"],
+                    rows=baremo_rows,
                 )
             )
 

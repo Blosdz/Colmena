@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.schemas.scoring import (
+    BaremoResolutionRead,
     ControlScaleCreate,
     ControlScaleItemCreate,
     ControlScaleItemRead,
@@ -145,6 +146,16 @@ def run_scoring(form_id: str, payload: ScoringRunRequest, service: AdvancedScori
 @router.get("/api/v1/form-responses/{response_id}/scores", response_model=list[ResponseScoreRead])
 def get_response_scores(response_id: str, service: AdvancedScoringService = Depends(get_advanced_scoring_service)) -> list[ResponseScoreRead]:
     return service.get_response_scores(response_id)
+
+
+@router.get("/api/v1/forms/{form_id}/scoring/baremos/resolution", response_model=BaremoResolutionRead)
+def resolve_variable_baremos(
+    form_id: str,
+    levels_count: int = 3,
+    baremo_method: str = "equal_range",
+    service: AdvancedScoringService = Depends(get_advanced_scoring_service),
+) -> BaremoResolutionRead:
+    return service.resolve_variable_baremos(form_id, levels_count=levels_count, baremo_method=baremo_method)
 
 
 @router.get("/api/v1/forms/{form_id}/scoring/results", response_model=ScoringResultsRead)

@@ -51,7 +51,7 @@ def generate_charts_from_analysis_run(
         theme="colmena_premium",
         decimals=3,
         include_discarded=False,
-        score_aggregation="mean",
+        score_aggregation="sum",
     )
 
 
@@ -67,7 +67,7 @@ def generate_charts_from_orchestrated_run(
         theme="colmena_premium",
         decimals=3,
         include_discarded=False,
-        score_aggregation="mean",
+        score_aggregation="sum",
     )
 
 
@@ -85,7 +85,7 @@ def get_recommended_charts(
         theme=theme,
         decimals=decimals,
         include_discarded=include_discarded,
-        score_aggregation="mean",
+        score_aggregation="sum",
         max_charts=max_charts,
     )
 

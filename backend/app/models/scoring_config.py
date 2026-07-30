@@ -15,7 +15,7 @@ class ScoringConfig(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     scoring_level: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    aggregation_method: Mapped[str] = mapped_column(String(50), nullable=False, default="mean")
+    aggregation_method: Mapped[str] = mapped_column(String(50), nullable=False, default="sum")
     missing_policy: Mapped[str] = mapped_column(String(50), nullable=False, default="allow_partial")
     min_answered_items: Mapped[int | None] = mapped_column(Integer, nullable=True)
     min_completion_percent: Mapped[float | None] = mapped_column(Float, nullable=True)

@@ -41,6 +41,7 @@ def build_table_title(table_type: str, context: str | None = None) -> str:
         "scoring_summary": "Resumen de scoring",
         "score_band_distribution": "Distribucion por baremos",
         "control_scale_flags": "Resumen de escalas de control",
+        "baremo_variables": "Baremos por variable",
         "orchestrated_summary": "Resumen de analisis orquestado",
     }
     base = defaults.get(table_type, "Tabla APA")
@@ -59,6 +60,7 @@ def build_table_notes(table_type: str, extra_notes: list[str] | None = None) -> 
         "scoring_summary": ["Los niveles obtenidos deben interpretarse segun la ficha tecnica del instrumento y el contexto de aplicacion."],
         "score_band_distribution": ["Los niveles corresponden a los rangos configurados para el instrumento y no implican diagnostico por si mismos."],
         "control_scale_flags": ["Las escalas de control apoyan la revision de validez de respuesta, pero no sustituyen el juicio metodologico."],
+        "baremo_variables": ["Los rangos del baremo se calcularon con la formula configurada para cada variable; los niveles no implican diagnostico por si mismos."],
         "orchestrated_summary": ["Tabla generada a partir de bloques consolidados del analisis guiado."],
     }
     notes = [ApaTableNoteRead(note_type="general", text=text) for text in base_notes.get(table_type, [])]
@@ -428,6 +430,37 @@ def build_control_scale_flags_table(
         warnings=warnings,
         source=source,
         decimals=decimals,
+    )
+
+
+def build_baremo_table(
+    *,
+    title: str,
+    rows: list[dict[str, Any]],
+    warnings: list[str],
+    source: dict[str, Any] | None,
+    decimals: int,
+) -> ApaTableRead:
+    extra_notes = []
+    if "baremo_computed_with_equal_range_formula" in warnings:
+        extra_notes.append("Los baremos sin bandas configuradas se calcularon con la formula de rangos iguales.")
+    return build_table(
+        table_type="baremo_variables",
+        title=title,
+        columns=[
+            {"key": "variable", "label": "Variable", "format_type": "text"},
+            {"key": "level", "label": "Nivel", "format_type": "text"},
+            {"key": "range", "label": "Rango", "format_type": "text"},
+            {"key": "n", "label": "n", "format_type": "integer"},
+            {"key": "percent", "label": "%", "format_type": "percentage"},
+            {"key": "interpretation", "label": "Interpretacion", "format_type": "text"},
+        ],
+        rows=rows,
+        notes=extra_notes,
+        warnings=warnings,
+        source=source,
+        decimals=decimals,
+        ready_for_word=True,
     )
 
 

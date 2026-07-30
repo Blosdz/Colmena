@@ -23,6 +23,7 @@ from app.models.form_section import FormSection
 from app.models.project_variable import ProjectVariable
 from app.schemas.dataset import (
     AnswerUpdateRequest,
+    AnswerUpsertRequest,
     CompletenessItemRead,
     CompletenessSummaryRead,
     DataDictionaryItemRead,
@@ -32,6 +33,7 @@ from app.schemas.dataset import (
     DatasetRead,
     ResponseStatusRead,
 )
+from app.services.export_utils import build_export_artifact
 from app.utils.columns import build_fallback_column_name, sanitize_column_name
 from app.utils.scoring import calculate_multiple_choice_score, calculate_option_score
 
@@ -528,8 +530,7 @@ class DatasetService:
         form = self._get_form(form_id)
         return self._get_form_responses(form, include_discarded=include_discarded)
 
-    def validate_answer_update(self, answer: FormAnswer, payload: AnswerUpdateRequest) -> dict[str, Any]:
-        question = answer.question
+    def validate_answer_update(self, question: FormQuestion, payload: AnswerUpdateRequest) -> dict[str, Any]:
         if question.deleted_at is not None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot edit an answer for a deleted question")
 
@@ -598,7 +599,90 @@ class DatasetService:
 
     def update_answer_value(self, answer_id: str, payload: AnswerUpdateRequest) -> FormAnswer:
         answer = self._get_answer(answer_id)
-        update_values = self.validate_answer_update(answer, payload)
+        update_values = self.validate_answer_update(answer.question, payload)
+        for field, value in update_values.items():
+            setattr(answer, field, value)
+        self.db.commit()
+        self.db.refresh(answer)
+        return answer
+
+    def _resolve_raw_value(self, question: FormQuestion, payload: AnswerUpsertRequest) -> AnswerUpsertRequest:
+        """Convierte el valor tecleado en la grilla al campo tipado de la pregunta."""
+        raw = payload.raw_value
+        if raw is None:
+            return payload
+        if question.question_type in {"single_choice", "dropdown", "likert", "boolean"}:
+            option = next(
+                (
+                    current
+                    for current in question.options
+                    if current.deleted_at is None and (current.value == raw or current.label == raw)
+                ),
+                None,
+            )
+            if option is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=f"'{raw}' no corresponde a ninguna opción de la pregunta",
+                )
+            return payload.model_copy(update={"option_id": option.id})
+        if question.question_type == "number":
+            try:
+                return payload.model_copy(update={"value_number": float(raw)})
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="raw_value must be numeric for this question type",
+                )
+        if question.question_type == "date":
+            try:
+                return payload.model_copy(update={"value_date": datetime.fromisoformat(raw)})
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="raw_value must be an ISO date for this question type",
+                )
+        # text_short / text_long (y cualquier otro tipo textual)
+        return payload.model_copy(update={"value_text": raw})
+
+    def upsert_answer_value(self, response_id: str, question_id: str, payload: AnswerUpsertRequest) -> FormAnswer:
+        """Edita una celda (response × question) creando el answer si no existe.
+
+        Es la pieza que permite la captura manual tipo "Vista de datos" de SPSS:
+        las filas manuales nacen sin answers y se van llenando celda a celda.
+        """
+        response = self._get_response(response_id)
+        question = self._get_question(question_id)
+        if question.form_id != response.form_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Question does not belong to the response's form",
+            )
+
+        answer = self.db.scalar(
+            select(FormAnswer).where(
+                FormAnswer.response_id == response_id,
+                FormAnswer.question_id == question_id,
+            )
+        )
+
+        empty_values = {
+            "option_id": None,
+            "value_text": None,
+            "value_number": None,
+            "value_date": None,
+            "value_json": None,
+            "score_value": None,
+        }
+        if payload.clear:
+            update_values = empty_values
+        else:
+            resolved = self._resolve_raw_value(question, payload)
+            update_values = self.validate_answer_update(question, resolved)
+
+        if answer is None:
+            answer = FormAnswer(response_id=response_id, question_id=question_id)
+            self.db.add(answer)
         for field, value in update_values.items():
             setattr(answer, field, value)
         self.db.commit()
@@ -692,21 +776,16 @@ class DatasetService:
         mime_type: str,
         metadata_json: dict[str, Any],
     ) -> ExportArtifact:
-        relative_path = file_path.relative_to(self.settings.backend_dir).as_posix()
-        artifact = ExportArtifact(
-            project_id=form.project_id,
-            form_id=form.id,
+        return build_export_artifact(
+            self.db,
+            settings=self.settings,
+            form=form,
             artifact_type=artifact_type,
             file_name=file_name,
-            file_path=relative_path,
+            file_path=file_path,
             mime_type=mime_type,
-            file_size_bytes=file_path.stat().st_size,
             metadata_json=metadata_json,
         )
-        self.db.add(artifact)
-        self.db.commit()
-        self.db.refresh(artifact)
-        return artifact
 
     def export_form_dataset_excel(
         self,

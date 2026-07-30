@@ -45,6 +45,8 @@ export interface FormInstrument {
   author?: string | null;
   year?: number | null;
   description?: string | null;
+  objective?: string | null;
+  application_mode?: string | null;
   response_scale_name?: string | null;
   scoring_method?: string | null;
   reverse_scoring_enabled: boolean;
@@ -60,6 +62,8 @@ export interface FormInstrumentPayload {
   author?: string | null;
   year?: number | null;
   description?: string | null;
+  objective?: string | null;
+  application_mode?: string | null;
   response_scale_name?: string | null;
   scoring_method?: string | null;
   reverse_scoring_enabled?: boolean;
@@ -91,6 +95,7 @@ export interface FormQuestion {
   instrument_id?: string | null;
   dimension_id?: string | null;
   project_variable_id?: string | null;
+  scale_id?: string | null;
   code?: string | null;
   label: string;
   help_text?: string | null;
@@ -116,6 +121,7 @@ export interface FormQuestionPayload {
   instrument_id?: string | null;
   dimension_id?: string | null;
   project_variable_id?: string | null;
+  scale_id?: string | null;
   code?: string | null;
   help_text?: string | null;
   question_type: string;

@@ -15,7 +15,10 @@ TABLE_TYPES = {
     "scoring_summary",
     "score_band_distribution",
     "control_scale_flags",
+    "baremo_variables",
     "orchestrated_summary",
+    "instrument_metadata",
+    "reliability",
 }
 SOURCE_TYPES = {"live", "analysis_run", "orchestrated"}
 EXPORT_FORMATS = {"markdown", "html", "json"}
@@ -131,7 +134,7 @@ class ApaTableRequest(BaseModel):
     options: dict[str, Any] | None = None
     decimals: int = Field(default=3, ge=0, le=6)
     include_discarded: bool = False
-    score_aggregation: str = "mean"
+    score_aggregation: str = "sum"
 
     @field_validator("table_type")
     @classmethod
@@ -164,7 +167,7 @@ class ApaTableBatchRequest(BaseModel):
     analysis_run_ids: list[str] | None = None
     decimals: int = Field(default=3, ge=0, le=6)
     include_discarded: bool = False
-    score_aggregation: str = "mean"
+    score_aggregation: str = "sum"
     options: dict[str, Any] | None = None
 
     @field_validator("table_types")

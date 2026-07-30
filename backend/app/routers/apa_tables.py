@@ -49,7 +49,7 @@ def generate_apa_tables_from_analysis_run(
         analysis_run_id,
         decimals=3,
         include_discarded=False,
-        score_aggregation="mean",
+        score_aggregation="sum",
     )
 
 

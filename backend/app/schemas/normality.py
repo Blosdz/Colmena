@@ -48,12 +48,35 @@ class NormalityReportRead(BaseModel):
     warnings: list[str]
 
 
+class HistogramBinRead(BaseModel):
+    bin_start: float
+    bin_end: float
+    count: int
+
+
+class NormalCurvePointRead(BaseModel):
+    x: float
+    y: float
+
+
+class NormalityHistogramRead(BaseModel):
+    target_type: str
+    target_id: str
+    target_name: str
+    mean: float | None
+    std: float | None
+    valid_n: int
+    bins: list[HistogramBinRead]
+    curve: list[NormalCurvePointRead]
+    warnings: list[str]
+
+
 class NormalityRunRequest(BaseModel):
     method: str = Field(default="auto")
     alpha: float = Field(default=0.05, ge=0.001, le=0.20)
     decimals: int = Field(default=3, ge=0, le=6)
     include_discarded: bool = False
-    score_aggregation: str = Field(default="mean")
+    score_aggregation: str = Field(default="sum")
     store_result: bool = True
 
     @field_validator("method")

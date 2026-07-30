@@ -232,4 +232,6 @@ def build_pair_diagnostics(x: pd.Series, y: pd.Series) -> dict[str, Any]:
         "pairwise_deletion_used": missing_n > 0,
         "many_ties": detect_many_ties(x_valid) or detect_many_ties(y_valid),
         "outliers_possible": detect_outliers_iqr(x_valid) or detect_outliers_iqr(y_valid),
+        "x_valid": x_valid.tolist(),
+        "y_valid": y_valid.tolist(),
     }

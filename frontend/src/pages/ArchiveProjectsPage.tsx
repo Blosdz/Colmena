@@ -47,7 +47,7 @@ export function ArchiveProjectsPage() {
           <div className="mt-6">
             <EmptyState
               title="Aun no hay proyectos"
-              description="Empieza creando el proyecto y luego define variable, formulario y reportes."
+              description="Empieza creando el proyecto y luego define variable y formulario."
             />
           </div>
         ) : (

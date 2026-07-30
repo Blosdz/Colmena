@@ -23,6 +23,8 @@ from app.models.score_band import ScoreBand
 from app.models.scoring_config import ScoringConfig
 from app.schemas.dataset import DatasetColumnRead, DatasetRead
 from app.schemas.scoring import (
+    BaremoLevelRead,
+    BaremoResolutionRead,
     ControlScaleRead,
     ControlScaleSummaryRead,
     ResponseControlFlagRead,
@@ -35,8 +37,16 @@ from app.schemas.scoring import (
     ScoringResultsRead,
     ScoringRunRead,
     ScoringRunRequest,
+    VariableBaremoRead,
 )
 from app.scoring.band_engine import build_band_interpretation, resolve_score_band, validate_bands_no_overlap
+from app.scoring.baremo_engine import (
+    compute_equal_range_baremo,
+    compute_mean_sd_baremo,
+    compute_percentile_baremo,
+    levels_from_score_bands,
+    resolve_level_for_score,
+)
 from app.scoring.control_scale_engine import evaluate_control_scale
 from app.scoring.scoring_engine import compute_response_score
 from app.scoring.scoring_warnings import control_scale_invalid, control_scale_warning, no_bands_configured, overlapping_bands
@@ -429,6 +439,132 @@ class AdvancedScoringService:
             invalid_responses=invalid_responses,
             band_distribution=self.summarize_bands_distribution(form.id),
             control_flags=self._summarize_control_flags(form.id),
+            warnings=list(dict.fromkeys(warnings)),
+        )
+
+    def _variable_label_for_config(self, config: ScoringConfig) -> str:
+        if config.project_variable is not None:
+            return config.project_variable.name
+        if config.dimension is not None:
+            return config.dimension.name
+        if config.instrument is not None:
+            return config.instrument.name
+        return config.name
+
+    def resolve_variable_baremos(
+        self,
+        form_id: str,
+        levels_count: int = 3,
+        baremo_method: str = "equal_range",
+    ) -> BaremoResolutionRead:
+        form = self._get_form(form_id)
+        configs = self._get_scoring_configs(form.id)
+        scores = list(self.db.scalars(select(ResponseScore).where(ResponseScore.form_id == form.id)).all())
+        warnings: list[str] = []
+        if not configs:
+            warnings.append("no_scoring_configs")
+
+        active_responses = [
+            response
+            for response in form.responses
+            if response.deleted_at is None and response.status != "discarded"
+        ]
+        if configs and not scores and active_responses:
+            for response in active_responses:
+                self.run_scoring_for_response(response.id, store_result=True)
+            scores = list(self.db.scalars(select(ResponseScore).where(ResponseScore.form_id == form.id)).all())
+            warnings.append("scores_computed_during_resolution")
+
+        items: list[VariableBaremoRead] = []
+        for config in configs:
+            config_scores = [
+                float(score.final_score)
+                for score in scores
+                if score.scoring_config_id == config.id and score.final_score is not None
+            ]
+            config_warnings: list[str] = []
+            score_min = float(config.score_min) if config.score_min is not None else (min(config_scores) if config_scores else None)
+            score_max = float(config.score_max) if config.score_max is not None else (max(config_scores) if config_scores else None)
+            if config.score_min is None or config.score_max is None:
+                if config_scores:
+                    config_warnings.append("theoretical_range_missing_used_observed")
+
+            band_levels = levels_from_score_bands(config.score_bands)
+            levels = []
+            baremo_source = "unavailable"
+            if band_levels:
+                levels = band_levels
+                baremo_source = "configured_bands"
+            elif baremo_method == "percentile" and len(config_scores) >= 2:
+                levels = compute_percentile_baremo(config_scores, levels_count)
+                if levels:
+                    baremo_source = "percentile_formula"
+                    config_warnings.append("baremo_computed_with_percentile_formula")
+            elif baremo_method == "mean_sd" and len(config_scores) >= 2:
+                levels = compute_mean_sd_baremo(config_scores, levels_count)
+                if levels:
+                    baremo_source = "mean_sd_formula"
+                    config_warnings.append("baremo_computed_with_mean_sd_formula")
+                else:
+                    config_warnings.append("baremo_mean_sd_zero_variance")
+
+            if not levels and score_min is not None and score_max is not None and score_min < score_max:
+                levels = compute_equal_range_baremo(
+                    score_min, score_max, levels_count, aggregation_method=config.aggregation_method
+                )
+                baremo_source = "equal_range_formula"
+                config_warnings.append("baremo_computed_with_equal_range_formula")
+            elif not levels:
+                baremo_source = "unavailable"
+                config_warnings.append("baremo_range_unavailable")
+
+            total = len(config_scores)
+            level_reads = [
+                BaremoLevelRead(
+                    **level,
+                    n=sum(1 for value in config_scores if level["min_value"] <= value <= level["max_value"]),
+                    percent=round(
+                        (sum(1 for value in config_scores if level["min_value"] <= value <= level["max_value"]) / total) * 100,
+                        3,
+                    )
+                    if total
+                    else 0.0,
+                )
+                for level in levels
+            ]
+
+            mean_score = round(sum(config_scores) / total, 3) if total else None
+            sd_score = None
+            if total > 1:
+                mean_raw = sum(config_scores) / total
+                sd_score = round((sum((value - mean_raw) ** 2 for value in config_scores) / (total - 1)) ** 0.5, 3)
+            mean_level = resolve_level_for_score(mean_score, levels)
+
+            items.append(
+                VariableBaremoRead(
+                    scoring_config_id=config.id,
+                    scoring_config_name=config.name,
+                    variable_label=self._variable_label_for_config(config),
+                    scoring_level=config.scoring_level,
+                    score_min=score_min,
+                    score_max=score_max,
+                    baremo_source=baremo_source,
+                    valid_n=total,
+                    mean_score=mean_score,
+                    sd_score=sd_score,
+                    mean_level=mean_level["label"] if mean_level is not None else None,
+                    mean_interpretation=mean_level.get("interpretation") if mean_level is not None else None,
+                    levels=level_reads,
+                    warnings=config_warnings,
+                )
+            )
+            warnings.extend(config_warnings)
+
+        return BaremoResolutionRead(
+            form_id=form.id,
+            project_id=form.project_id,
+            resolved_variables=len(items),
+            items=items,
             warnings=list(dict.fromkeys(warnings)),
         )
 

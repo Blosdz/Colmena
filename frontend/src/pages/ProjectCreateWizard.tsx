@@ -1,19 +1,25 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   Rocket,
   Loader2,
   AlertTriangle,
   Sparkles,
+  ArrowLeft,
+  ArrowRight,
+  FolderPlus,
 } from "lucide-react";
 
 import { VariableTreeSidebar } from "../components/project/VariableTreeSidebar";
-import { BulkQuestionImporter } from "../components/forms/BulkQuestionImporter";
-import { BulkQuestionTable } from "../components/forms/BulkQuestionTable";
+import { Select, SelectOption } from "../components/ui/Select";
+import { VariableSettingsPanel } from "../components/forms/VariableSettingsPanel";
+import { ItemsPanel } from "../components/forms/ItemsPanel";
 import { DimensionAssignmentPanel } from "../components/forms/DimensionAssignmentPanel";
-import { ScaleBuilder } from "../components/forms/ScaleBuilder";
 import { BaremoAutoBuilder } from "../components/forms/BaremoAutoBuilder";
 import { ExcelDataUploader } from "../components/forms/ExcelDataUploader";
+import { ParticipantDataPanel } from "../components/project/ParticipantDataPanel";
+import { PARTICIPANT_PRESETS } from "../components/forms-wizard/scalePresets";
 import {
   useProjectDraft,
   type VariableTab,
@@ -24,17 +30,30 @@ import {
   createVariable,
 } from "../utils/projectDraftStore";
 import { setActiveProjectId } from "../utils/activeProject";
+import { resolveDefaultCatalogScale } from "../utils/resolveDefaultScale";
 import type { ParsedQuestion } from "../utils/bulkQuestionParser";
 import { apiClient } from "../api/client";
+import { useScales } from "../hooks/useScales";
+import { createScale } from "../api/scales";
+import type { CatalogScale } from "../components/forms/BulkQuestionTable";
 
 // API imports for database sync
-import { createProject, getProject } from "../api/projects";
+import {
+  createProject,
+  getProject,
+  listProjects,
+  createProjectVariable,
+  updateProjectVariable,
+  listProjectVariables,
+} from "../api/projects";
 import {
   createForm,
   createInstrument,
   createDimension,
   createQuestion,
   createQuestionOption,
+  createSection,
+  listSections,
   listProjectForms,
   listQuestions,
   listInstruments,
@@ -44,25 +63,24 @@ import {
 } from "../api/forms";
 
 const TAB_LABELS: Record<VariableTab, string> = {
+  variable: "Variable",
   dimensions: "Dimensiones",
   items: "Ítems",
   scale: "Escala",
   baremos: "Baremos",
   data: "Base de datos",
+  participants: "Datos del participante",
 };
 
-const VAR_TABS: VariableTab[] = ["dimensions", "items", "scale", "baremos"];
+// La escala se fusionó dentro de "items" (editor colapsable), ya no es una pestaña propia.
+const VAR_TABS: VariableTab[] = ["variable", "dimensions", "items", "baremos"];
 
-const DEFAULT_SCALE = {
-  name: "Likert 5 puntos",
-  options: [
-    { id: "1", value: 1, label: "Totalmente en desacuerdo" },
-    { id: "2", value: 2, label: "En desacuerdo" },
-    { id: "3", value: 3, label: "Ni de acuerdo ni en desacuerdo" },
-    { id: "4", value: 4, label: "De acuerdo" },
-    { id: "5", value: 5, label: "Totalmente de acuerdo" },
-  ],
-};
+// Roles legacy que aún pueden venir de proyectos guardados antes de la simplificación.
+function normalizeVariableRole(raw: string | undefined | null): VariableDraft["variableRole"] {
+  if (raw === "main" || raw === "intervening") return raw;
+  if (raw === "demographic" || raw === "sociodemografica") return "intervening";
+  return "main";
+}
 
 export function ProjectCreateWizard() {
   const navigate = useNavigate();
@@ -70,6 +88,58 @@ export function ProjectCreateWizard() {
   const store = useProjectDraft();
   const { draft, activeVariable, activeTab, showProjectInfo } = store;
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  const isNewProject = !routeProjectId || routeProjectId === "new";
+  const projectsQuery = useQuery({
+    queryKey: ["project-selector-list"],
+    queryFn: listProjects,
+    enabled: isNewProject,
+  });
+  const existingProjects = projectsQuery.data?.items ?? [];
+
+  // Catálogo de escalas del backend (fuente única de verdad; new project → solo presets del sistema)
+  const scalesQuery = useScales(isNewProject ? undefined : routeProjectId);
+  const catalogScales: CatalogScale[] = (scalesQuery.data?.items ?? []).map((s) => ({
+    id: s.id,
+    name: s.name,
+    scale_kind: s.scale_kind,
+    points: s.points,
+    project_id: s.project_id,
+    render_style: s.render_style,
+    options: s.options.map((o) => ({ value: o.value, label: o.label })),
+  }));
+  // La escala global de la variable actúa como escala heredada por defecto de sus ítems.
+  const defaultScale: CatalogScale | undefined =
+    activeVariable.scale.options.length > 0
+      ? {
+          id: "__variable__",
+          name: activeVariable.scale.name,
+          options: activeVariable.scale.options.map((o) => ({ value: o.value, label: o.label })),
+        }
+      : undefined;
+
+  // Backfill: si alguna variable arrancó sin escala (antes de que cargue el catálogo, o el
+  // fallback vacío de createVariable/createDefaultDraft), se completa con la escala por defecto
+  // del backend en cuanto el catálogo esté disponible. Nunca se hardcodea texto Likert aquí.
+  useEffect(() => {
+    if (!scalesQuery.data) return;
+    const fallback = resolveDefaultCatalogScale(catalogScales);
+    if (!fallback) return;
+    draft.variables.forEach((v) => {
+      if (v.scale.options.length === 0) {
+        store.updateScale(v.id, {
+          name: fallback.name,
+          options: fallback.options.map((o, i) => ({ id: String(i + 1), value: o.value, label: o.label })),
+          catalogScaleId: fallback.id,
+        });
+      }
+    });
+    // Depende también de `draft` completo (no solo de scalesQuery.data): `store.hydrate(...)`
+    // reemplaza el objeto entero, y puede terminar después de que el catálogo ya cargó, trayendo
+    // variables nuevas con escala vacía que también hay que backfillear. El cuerpo es idempotente
+    // (solo toca variables con options.length === 0), así que re-ejecutar en cada cambio es barato.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scalesQuery.data, draft]);
 
   // Database saving states
   const [isSaving, setIsSaving] = useState(false);
@@ -84,17 +154,39 @@ export function ProjectCreateWizard() {
       try {
         const project = await getProject(projId);
         const formsResponse = await listProjectForms(projId);
-        
+        const projectVariablesResponse = await listProjectVariables(projId);
+
         const variables: VariableDraft[] = [];
-        
+        const participantFieldSet = new Set<string>();
+
         for (const form of formsResponse.items) {
+          // Repoblar los checkboxes de "Datos del participante" desde sus preguntas
+          const formQuestionsResponse = await listQuestions(form.id);
+          for (const q of formQuestionsResponse.items) {
+            if (q.question_role !== "sociodemographic") continue;
+            const presetId = (q.config_json as { preset_id?: string } | null)?.preset_id;
+            const preset =
+              PARTICIPANT_PRESETS.find((p) => p.id === presetId) ||
+              PARTICIPANT_PRESETS.find((p) => p.code === q.code);
+            if (preset) participantFieldSet.add(preset.id);
+          }
+
           const instrumentsResponse = await listInstruments(form.id);
           for (const instrument of instrumentsResponse.items) {
+            // Match the study variable that backs this instrument (by id, fallback by name)
+            const studyVar =
+              projectVariablesResponse.items.find(v => v.id === instrument.project_variable_id) ||
+              projectVariablesResponse.items.find(
+                v => v.name.trim().toLowerCase() === instrument.name.trim().toLowerCase()
+              );
             const dimsResponse = await listDimensions(instrument.id);
             const questionsResponse = await listQuestions(form.id);
             
             const psychQuestions = questionsResponse.items.filter(
-              q => q.instrument_id === instrument.id && q.question_role !== "exogenous"
+              q =>
+                q.instrument_id === instrument.id &&
+                q.question_role !== "exogenous" &&
+                q.question_role !== "sociodemographic"
             );
             
             const items: ParsedQuestion[] = [];
@@ -123,6 +215,7 @@ export function ProjectCreateWizard() {
                 reversed: q.is_reverse_scored,
                 required: q.is_required,
                 scored: q.is_scored,
+                isImportance: false,
                 type: q.question_type,
                 scale: "Likert",
                 status: "ready"
@@ -178,16 +271,36 @@ export function ProjectCreateWizard() {
             variables.push({
               id: instrument.id,
               name: instrument.name,
+              code: studyVar?.code || "",
+              description: studyVar?.description || "",
+              variableRole: normalizeVariableRole(studyVar?.variable_role),
+              variableClassification: (studyVar?.variable_classification as VariableDraft["variableClassification"]) ?? null,
+              measurementMode: (studyVar?.measurement_mode as VariableDraft["measurementMode"]) || "instrument",
+              measurementLevel: (studyVar?.measurement_level as VariableDraft["measurementLevel"]) || "ordinal",
+              dataType: (studyVar?.data_type as VariableDraft["dataType"]) || "numeric",
+              isRequiredForAnalysis: studyVar?.is_required_for_analysis ?? true,
               dimensions: dimensionsDrafts,
               items,
-              scale: scale.options.length > 0 ? scale : { ...DEFAULT_SCALE },
+              scale:
+                scale.options.length > 0
+                  ? scale
+                  : (() => {
+                      const fallback = resolveDefaultCatalogScale(catalogScales);
+                      return fallback
+                        ? {
+                            name: fallback.name,
+                            options: fallback.options.map((o, i) => ({ id: String(i + 1), value: o.value, label: o.label })),
+                            catalogScaleId: fallback.id,
+                          }
+                        : scale;
+                    })(),
               baremos: varBaremos
             });
           }
         }
         
         if (variables.length === 0) {
-          variables.push(createVariable("Variable principal"));
+          variables.push(createVariable("Variable 1"));
         }
         
         store.hydrate({
@@ -195,6 +308,7 @@ export function ProjectCreateWizard() {
           author: project.advisor_name || "",
           description: project.notes || "",
           variables,
+          participantFields: [...participantFieldSet],
           dataRows: [],
           dataColumns: []
         });
@@ -249,6 +363,54 @@ export function ProjectCreateWizard() {
     } catch (e) {
       console.warn("Error clearing instruments:", e);
     }
+
+    // 4. Delete sections (evita duplicar "Datos del participante" al re-guardar)
+    try {
+      const sectionsResponse = await listSections(formId);
+      for (const s of sectionsResponse.items) {
+        await apiClient.delete(`/api/v1/form-sections/${s.id}`);
+      }
+    } catch (e) {
+      console.warn("Error clearing sections:", e);
+    }
+  };
+
+  // Crea la sección fija "Datos del participante" con una pregunta no puntuada por preset.
+  const createParticipantSection = async (formId: string) => {
+    if (draft.participantFields.length === 0) return;
+    const section = await createSection(formId, {
+      title: "Datos del participante",
+      description: "Datos sociodemográficos del participante.",
+      sort_order: 0,
+    });
+    let idx = 0;
+    for (const presetId of draft.participantFields) {
+      const preset = PARTICIPANT_PRESETS.find((p) => p.id === presetId);
+      if (!preset) continue;
+      const qType =
+        preset.fieldType === "number" ? "number" : preset.fieldType === "select" ? "single_choice" : "text_short";
+      const question = await createQuestion(formId, {
+        section_id: section.id,
+        label: preset.name,
+        code: preset.code,
+        question_type: qType,
+        question_role: "sociodemographic",
+        measurement_level: preset.measurementLevel,
+        data_type: preset.dataType,
+        is_required: true,
+        is_scored: false,
+        sort_order: idx,
+        config_json: { source: "participant_panel", preset_id: preset.id },
+      });
+      if (qType === "single_choice") {
+        const labels = preset.optionsText.split(",").map((s) => s.trim()).filter(Boolean);
+        for (let i = 0; i < labels.length; i++) {
+          // Valor numérico (1..n) para poder teclearlo en la grilla de captura manual.
+          await createQuestionOption(question.id, { label: labels[i], value: String(i + 1), sort_order: i });
+        }
+      }
+      idx++;
+    }
   };
 
   const handleCreateProject = async () => {
@@ -278,12 +440,41 @@ export function ProjectCreateWizard() {
 
       setActiveProjectId(projectId);
 
-      // Fetch existing forms
+      // Fetch existing forms and study variables (avoid duplicating on re-save)
       const existingFormsResponse = await listProjectForms(projectId);
+      const existingVariablesResponse = await listProjectVariables(projectId);
 
-      // 2. For each variable, create Form, Instrument, Dimensions, and Questions
+      // 2. For each variable, create the study Variable, then Form, Instrument, Dimensions, and Questions
       for (let i = 0; i < draft.variables.length; i++) {
         const variable = draft.variables[i];
+        setSavingStatus(`Registrando variable de estudio: ${variable.name}...`);
+
+        // 2a. Create (or reuse) the study variable → project_variables
+        const existingVar = existingVariablesResponse.items.find(
+          v => v.name.trim().toLowerCase() === variable.name.trim().toLowerCase()
+        );
+        const variablePayload = {
+          name: variable.name,
+          code: variable.code || null,
+          description: variable.description || null,
+          variable_role: variable.variableRole,
+          variable_classification: variable.variableClassification ?? null,
+          measurement_mode: variable.measurementMode,
+          measurement_level: variable.measurementLevel,
+          data_type: variable.dataType,
+          is_required_for_analysis: variable.isRequiredForAnalysis,
+        };
+        let projectVariableId: string;
+        if (existingVar) {
+          // Persist any edits to role / level / type on re-save
+          const updated = await updateProjectVariable(existingVar.id, variablePayload);
+          projectVariableId = updated.id;
+        } else {
+          const createdVar = await createProjectVariable(projectId, variablePayload);
+          projectVariableId = createdVar.id;
+          existingVariablesResponse.items.push(createdVar);
+        }
+
         setSavingStatus(`Guardando constructo métrico para: ${variable.name}...`);
 
         let form = existingFormsResponse.items.find(f => f.title === variable.name) || existingFormsResponse.items[i];
@@ -306,11 +497,16 @@ export function ProjectCreateWizard() {
           formId = form.id;
         }
 
-        // 2b. Create Instrument
+        // 2a-bis. Sección fija "Datos del participante" (primero en cada formulario)
+        setSavingStatus("Creando sección de datos del participante...");
+        await createParticipantSection(formId);
+
+        // 2b. Create Instrument (linked to the study variable)
         const instrument = await createInstrument(formId, {
           name: variable.name,
-          acronym: variable.name.substring(0, 5).toUpperCase(),
-          description: variable.name,
+          acronym: (variable.code || variable.name).substring(0, 5).toUpperCase(),
+          description: variable.description || variable.name,
+          project_variable_id: projectVariableId,
         });
         const instrumentId = instrument.id;
 
@@ -323,6 +519,29 @@ export function ProjectCreateWizard() {
             description: dim.description,
           });
           dimensionIdMap[dim.name] = createdDim.id;
+        }
+
+        // 2c-bis. Resolve (reuse or create) the catalog scale for this variable, so the
+        // number of Likert points chosen actually persists in `scales`/`scale_options`.
+        let variableScaleId: string | null = null;
+        if (variable.scale.options.length > 0) {
+          if (variable.scale.catalogScaleId) {
+            variableScaleId = variable.scale.catalogScaleId;
+          } else {
+            setSavingStatus(`Guardando escala de respuesta: ${variable.scale.name}...`);
+            const createdScale = await createScale(projectId, {
+              name: variable.scale.name,
+              scale_kind: "personalizada",
+              render_style: "radio",
+              points: variable.scale.options.length,
+              options: variable.scale.options.map((o, i) => ({
+                value: o.value,
+                label: o.label,
+                sort_order: i,
+              })),
+            });
+            variableScaleId = createdScale.id;
+          }
         }
 
         // 2d. Create Questions and Options
@@ -339,8 +558,13 @@ export function ProjectCreateWizard() {
             question_type: mappedType,
             instrument_id: instrumentId,
             dimension_id: dimensionId || null,
+            project_variable_id: projectVariableId,
+            scale_id: variableScaleId,
+            measurement_level: variable.measurementLevel,
+            data_type: variable.dataType,
             code: item.code || `P${qIdx + 1}`,
             help_text: "",
+            question_role: item.isImportance ? "importance" : "item",
             is_required: item.required ?? true,
             is_scored: item.scored ?? true,
             is_reverse_scored: item.reversed ?? false,
@@ -369,16 +593,19 @@ export function ProjectCreateWizard() {
             scoring_level: "instrument",
             aggregation_method: "sum",
             missing_policy: "allow_partial",
+            score_min: variable.items.length * scaleMin,
+            score_max: variable.items.length * scaleMax,
           });
 
-          for (const band of variable.baremos) {
+          for (const [bandIdx, band] of variable.baremos.entries()) {
+            if (band.max < band.min) continue; // rango inválido: se omite en vez de abortar todo el guardado
             await apiClient.post(`/api/v1/scoring/configs/${config.id}/bands`, {
               label: band.name,
               min_value: band.min,
               max_value: band.max,
               color_hint: band.color,
               interpretation: band.description || "",
-              severity_order: 0,
+              severity_order: bandIdx + 1,
             });
           }
         }
@@ -388,22 +615,26 @@ export function ProjectCreateWizard() {
           if (dim.baremos.length > 0) {
             setSavingStatus(`Configurando baremos de dimensión: ${dim.name}...`);
             const dimId = dimensionIdMap[dim.name];
+            const dimItemCount = variable.items.filter((i) => i.dimensionName === dim.name).length;
             const config = await apiClient.post<{ id: string }>(`/api/v1/forms/${formId}/scoring/configs`, {
               name: `Baremos - ${dim.name}`,
               dimension_id: dimId,
               scoring_level: "dimension",
               aggregation_method: "sum",
               missing_policy: "allow_partial",
+              score_min: dimItemCount * scaleMin,
+              score_max: dimItemCount * scaleMax,
             });
 
-            for (const band of dim.baremos) {
+            for (const [bandIdx, band] of dim.baremos.entries()) {
+              if (band.max < band.min) continue; // rango inválido: se omite en vez de abortar todo el guardado
               await apiClient.post(`/api/v1/scoring/configs/${config.id}/bands`, {
                 label: band.name,
                 min_value: band.min,
                 max_value: band.max,
                 color_hint: band.color,
                 interpretation: band.description || "",
-                severity_order: 0,
+                severity_order: bandIdx + 1,
               });
             }
           }
@@ -432,6 +663,11 @@ export function ProjectCreateWizard() {
     store.addItems(activeVariable.id, newItems);
   };
 
+  const handleAddQuickDimension = () => {
+    const nextIndex = activeVariable.dimensions.length + 1;
+    store.addDimension(activeVariable.id, `Dimensión ${nextIndex}`);
+  };
+
   const handleAddManualItem = () => {
     const nextIndex = activeVariable.items.length + 1;
     const newItem: ParsedQuestion = {
@@ -444,6 +680,7 @@ export function ProjectCreateWizard() {
       reversed: false,
       required: true,
       scored: true,
+      isImportance: false,
       status: "review",
     };
     store.addItems(activeVariable.id, [newItem]);
@@ -463,13 +700,22 @@ export function ProjectCreateWizard() {
     store.updateItem(activeVariable.id, id, updates);
   };
 
-  const isNewProject = !routeProjectId || routeProjectId === "new";
+  const handleRemoveItem = (id: string) => {
+    store.removeItem(activeVariable.id, id);
+    setSelectedIds((prev) => prev.filter((x) => x !== id));
+  };
+
   const canPublish = (!isNewProject || draft.title.trim().length > 0) && draft.variables.some((v) => v.items.length > 0);
 
   const scaleMin = Math.min(...activeVariable.scale.options.map((o) => o.value), 1);
   const scaleMax = Math.max(...activeVariable.scale.options.map((o) => o.value), 5);
 
-  const isVarTab = activeTab !== "data";
+  const isVarTab = activeTab !== "data" && activeTab !== "participants";
+
+  // Navegación secuencial entre pestañas de la variable (variable → dimensiones → ítems → baremos)
+  const varTabIndex = isVarTab ? VAR_TABS.indexOf(activeTab) : -1;
+  const prevTab = varTabIndex > 0 ? VAR_TABS[varTabIndex - 1] : null;
+  const nextTab = varTabIndex >= 0 && varTabIndex < VAR_TABS.length - 1 ? VAR_TABS[varTabIndex + 1] : null;
 
 
 
@@ -519,21 +765,128 @@ export function ProjectCreateWizard() {
         </div>
       )}
 
+      {/* ── Modal: nombre del proyecto ───────────────── */}
+      {showProjectInfo && !isSaving && (
+        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm z-40 flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-white border border-colmena-border rounded-2xl p-6 shadow-xl animate-colmena-fade-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber/15 text-amber">
+                <FolderPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-dark">
+                  {isNewProject ? "Nuevo proyecto" : "Información del proyecto"}
+                </h2>
+                <p className="text-xs text-muted">Escribe el nombre de tu proyecto de investigación.</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-bold text-muted uppercase tracking-wide mb-1">
+                  Nombre del proyecto *
+                </label>
+                <input
+                  autoFocus
+                  className="colmena-input w-full h-10 text-sm font-semibold"
+                  placeholder="Ej. Autoestima y clima laboral"
+                  value={draft.title}
+                  onChange={(e) => store.updateProject({ title: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && draft.title.trim().length > 0) {
+                      store.setShowProjectInfo(false);
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-muted uppercase tracking-wide mb-1">
+                  Investigador
+                </label>
+                <input
+                  className="colmena-input w-full h-9 text-sm"
+                  placeholder="Nombre del investigador"
+                  value={draft.author}
+                  onChange={(e) => store.updateProject({ author: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-muted uppercase tracking-wide mb-1">
+                  Descripción
+                </label>
+                <input
+                  className="colmena-input w-full h-9 text-sm"
+                  placeholder="Descripción breve (opcional)"
+                  value={draft.description}
+                  onChange={(e) => store.updateProject({ description: e.target.value })}
+                />
+              </div>
+
+              {isNewProject && existingProjects.length > 0 && (
+                <div className="pt-2 border-t border-colmena-border">
+                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wide mb-1">
+                    O continuar un proyecto existente
+                  </label>
+                  <Select
+                    className="!h-9 !w-full !text-sm !rounded-lg"
+                    value=""
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      if (selectedId) navigate(`/project/${selectedId}`);
+                    }}
+                  >
+                    <SelectOption value="">Elegir proyecto existente…</SelectOption>
+                    {existingProjects.map((project) => (
+                      <SelectOption key={project.id} value={project.id}>
+                        {project.title}
+                      </SelectOption>
+                    ))}
+                  </Select>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex gap-2">
+              {(draft.title.trim().length > 0 || !isNewProject) && (
+                <button
+                  type="button"
+                  onClick={() => store.setShowProjectInfo(false)}
+                  className="flex-1 colmena-button-secondary text-sm font-semibold h-10"
+                >
+                  Cancelar
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={draft.title.trim().length === 0}
+                onClick={() => store.setShowProjectInfo(false)}
+                className="flex-1 colmena-button-primary text-sm font-semibold h-10 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isNewProject ? "Crear" : "Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Body ─────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar tree */}
         <VariableTreeSidebar
+          projectTitle={draft.title}
           variables={draft.variables}
           activeVariableId={store.activeVariableId}
           activeTab={activeTab}
           dataRowCount={draft.dataRows.length}
+          participantFieldCount={draft.participantFields.length}
           onSelectNode={(varId, tab) => {
             store.setActiveVariableId(varId);
             store.setActiveTab(tab);
             setSelectedIds([]);
           }}
           onSelectDataTab={() => store.setActiveTab("data")}
-          onAddVariable={store.addVariable}
+          onSelectParticipants={() => store.setActiveTab("participants")}
+          onAddVariable={() => store.addVariable(resolveDefaultCatalogScale(catalogScales))}
           onRemoveVariable={store.removeVariable}
           onRenameVariable={store.renameVariable}
           onShowProjectInfo={() => store.setShowProjectInfo(true)}
@@ -541,32 +894,8 @@ export function ProjectCreateWizard() {
 
         {/* Main panel */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {/* Toolbar: project info + tabs + publish */}
+          {/* Toolbar: tabs + publish */}
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-colmena-border bg-white shrink-0">
-            {/* Project fields inline */}
-            {showProjectInfo && (
-              <div className="flex items-center gap-2 pr-3 mr-2 border-r border-colmena-border shrink-0 animate-colmena-fade-in">
-                <input
-                  className="colmena-input h-7 text-[11px] w-40 font-semibold"
-                  placeholder="Nombre del proyecto *"
-                  value={draft.title}
-                  onChange={(e) => store.updateProject({ title: e.target.value })}
-                />
-                <input
-                  className="colmena-input h-7 text-[11px] w-28"
-                  placeholder="Investigador"
-                  value={draft.author}
-                  onChange={(e) => store.updateProject({ author: e.target.value })}
-                />
-                <input
-                  className="colmena-input h-7 text-[11px] w-36"
-                  placeholder="Descripción"
-                  value={draft.description}
-                  onChange={(e) => store.updateProject({ description: e.target.value })}
-                />
-              </div>
-            )}
-
             {/* Breadcrumb + tabs */}
             <div className="flex items-center gap-0.5 flex-1 min-w-0">
               {isVarTab && (
@@ -577,7 +906,7 @@ export function ProjectCreateWizard() {
                   <span className="text-[10px] text-colmena-border mr-1">›</span>
                 </>
               )}
-              {(isVarTab ? VAR_TABS : (["data"] as VariableTab[])).map((tab) => (
+              {(isVarTab ? VAR_TABS : ([activeTab] as VariableTab[])).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => store.setActiveTab(tab)}
@@ -603,6 +932,15 @@ export function ProjectCreateWizard() {
           {/* Content area — tight padding, no max-width */}
           <div className="flex-1 overflow-hidden px-4 py-3 bg-colmena-bg">
             <div className="animate-colmena-fade-in h-full flex flex-col" key={`${store.activeVariableId}-${activeTab}`}>
+              {activeTab === "variable" && (
+                <div className="overflow-y-auto h-full">
+                  <VariableSettingsPanel
+                    variable={activeVariable}
+                    onChange={(updates) => store.updateVariableMeta(activeVariable.id, updates)}
+                  />
+                </div>
+              )}
+
               {activeTab === "dimensions" && (
                 <div className="overflow-y-auto h-full">
                   <DimensionAssignmentPanel
@@ -616,38 +954,21 @@ export function ProjectCreateWizard() {
               )}
 
               {activeTab === "items" && (
-                <div className="flex-1 min-h-0 flex flex-col gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <BulkQuestionImporter onDataParsed={handleDataParsed} />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleAddManualItem}
-                      className="colmena-button-sm-primary shrink-0"
-                    >
-                      + Agregar ítem
-                    </button>
-                  </div>
-                  <BulkQuestionTable
-                    questions={activeVariable.items}
-                    selectedIds={selectedIds}
-                    dimensions={activeVariable.dimensions}
-                    defaultScaleName={activeVariable.scale.name}
-                    onToggleSelect={handleToggleSelect}
-                    onToggleAll={handleToggleAll}
-                    onUpdate={handleUpdateItem}
-                  />
-                </div>
-              )}
-
-              {activeTab === "scale" && (
-                <div className="overflow-y-auto h-full">
-                  <ScaleBuilder
-                    scale={activeVariable.scale}
-                    onChange={(scale) => store.updateScale(activeVariable.id, scale)}
-                  />
-                </div>
+                <ItemsPanel
+                  variable={activeVariable}
+                  catalogScales={catalogScales}
+                  defaultScale={defaultScale}
+                  selectedIds={selectedIds}
+                  onToggleSelect={handleToggleSelect}
+                  onToggleAll={handleToggleAll}
+                  onClearSelection={() => setSelectedIds([])}
+                  onAddItems={handleDataParsed}
+                  onUpdateItem={handleUpdateItem}
+                  onRemoveItem={handleRemoveItem}
+                  onAddManualItem={handleAddManualItem}
+                  onAddQuickDimension={handleAddQuickDimension}
+                  onUpdateScale={(scale) => store.updateScale(activeVariable.id, scale)}
+                />
               )}
 
               {activeTab === "baremos" && (
@@ -667,6 +988,15 @@ export function ProjectCreateWizard() {
                 </div>
               )}
 
+              {activeTab === "participants" && (
+                <div className="overflow-y-auto h-full">
+                  <ParticipantDataPanel
+                    selected={draft.participantFields}
+                    onToggle={(id) => store.toggleParticipantField(id)}
+                  />
+                </div>
+              )}
+
               {activeTab === "data" && (
                 <div className="overflow-y-auto h-full">
                   <ExcelDataUploader
@@ -678,6 +1008,44 @@ export function ProjectCreateWizard() {
               )}
             </div>
           </div>
+
+          {/* Footer: navegación secuencial entre pestañas de la variable */}
+          {isVarTab && (
+            <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-t border-colmena-border bg-white shrink-0">
+              {prevTab ? (
+                <button
+                  type="button"
+                  onClick={() => store.setActiveTab(prevTab)}
+                  className="colmena-button-secondary inline-flex items-center gap-1.5 text-xs font-semibold h-9 px-4"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  {TAB_LABELS[prevTab]}
+                </button>
+              ) : (
+                <span />
+              )}
+              {nextTab ? (
+                <button
+                  type="button"
+                  onClick={() => store.setActiveTab(nextTab)}
+                  className="colmena-button-primary inline-flex items-center gap-1.5 text-xs font-semibold h-9 px-4"
+                >
+                  Siguiente paso: {TAB_LABELS[nextTab]}
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCreateProject}
+                  disabled={!canPublish || isSaving}
+                  className="colmena-button-primary inline-flex items-center gap-1.5 text-xs font-semibold h-9 px-4 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Rocket className="w-3.5 h-3.5" />
+                  Confirmar y Publicar
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

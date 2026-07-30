@@ -128,7 +128,7 @@ class ChartGenerateRequest(BaseModel):
     theme: str = "colmena_premium"
     decimals: int = Field(default=3, ge=0, le=6)
     include_discarded: bool = False
-    score_aggregation: str = "mean"
+    score_aggregation: str = "sum"
     options: dict[str, Any] | None = None
 
     @field_validator("chart_type")
@@ -173,7 +173,7 @@ class ChartBatchRequest(BaseModel):
     theme: str = "colmena_premium"
     decimals: int = Field(default=3, ge=0, le=6)
     include_discarded: bool = False
-    score_aggregation: str = "mean"
+    score_aggregation: str = "sum"
     options: dict[str, Any] | None = None
 
     @field_validator("source_type")
@@ -251,7 +251,7 @@ class ChartExportRequest(BaseModel):
     theme: str = "colmena_premium"
     decimals: int = Field(default=3, ge=0, le=6)
     include_discarded: bool = False
-    score_aggregation: str = "mean"
+    score_aggregation: str = "sum"
     options: dict[str, Any] | None = None
 
     @field_validator("format")

@@ -29,8 +29,9 @@ def list_projects(
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None),
     service: ProjectService = Depends(get_project_service),
+    current_user: User = Depends(get_current_user),
 ) -> ProjectListResponse:
-    items, total = service.list_projects(limit=limit, offset=offset, q=q)
+    items, total = service.list_projects(user_id=current_user.id, limit=limit, offset=offset, q=q)
     return ProjectListResponse(items=items, total=total)
 
 
@@ -38,8 +39,9 @@ def list_projects(
 def get_project(
     project_id: str,
     service: ProjectService = Depends(get_project_service),
+    current_user: User = Depends(get_current_user),
 ) -> ProjectRead:
-    return service.get_project(project_id)
+    return service.get_project(project_id, user_id=current_user.id)
 
 
 @router.patch("/{project_id}", response_model=ProjectRead)
@@ -47,13 +49,15 @@ def update_project(
     project_id: str,
     payload: ProjectUpdate,
     service: ProjectService = Depends(get_project_service),
+    current_user: User = Depends(get_current_user),
 ) -> ProjectRead:
-    return service.update_project(project_id, payload)
+    return service.update_project(project_id, payload, user_id=current_user.id)
 
 
 @router.delete("/{project_id}")
 def delete_project(
     project_id: str,
     service: ProjectService = Depends(get_project_service),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
-    return service.soft_delete_project(project_id)
+    return service.soft_delete_project(project_id, user_id=current_user.id)

@@ -2,7 +2,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas.normality import NormalityReportRead, NormalityRunRead, NormalityRunRequest, NormalityTestResultRead
+from app.schemas.normality import (
+    NormalityHistogramRead,
+    NormalityReportRead,
+    NormalityRunRead,
+    NormalityRunRequest,
+    NormalityTestResultRead,
+)
 from app.services.normality_service import NormalityService
 
 
@@ -20,7 +26,7 @@ def get_normality_report(
     alpha: float = Query(default=0.05, ge=0.001, le=0.20),
     decimals: int = Query(default=3, ge=0, le=6),
     include_discarded: bool = Query(default=False),
-    score_aggregation: str = Query(default="mean", pattern="^(sum|mean)$"),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
     service: NormalityService = Depends(get_normality_service),
 ) -> NormalityReportRead:
     return service.get_normality_report(
@@ -60,7 +66,7 @@ def get_dimensions_normality(
     alpha: float = Query(default=0.05, ge=0.001, le=0.20),
     decimals: int = Query(default=3, ge=0, le=6),
     include_discarded: bool = Query(default=False),
-    score_aggregation: str = Query(default="mean", pattern="^(sum|mean)$"),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
     service: NormalityService = Depends(get_normality_service),
 ) -> NormalityReportRead:
     full = service.get_normality_report(
@@ -82,7 +88,7 @@ def get_instruments_normality(
     alpha: float = Query(default=0.05, ge=0.001, le=0.20),
     decimals: int = Query(default=3, ge=0, le=6),
     include_discarded: bool = Query(default=False),
-    score_aggregation: str = Query(default="mean", pattern="^(sum|mean)$"),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
     service: NormalityService = Depends(get_normality_service),
 ) -> NormalityReportRead:
     full = service.get_normality_report(
@@ -104,7 +110,7 @@ def get_project_variables_normality(
     alpha: float = Query(default=0.05, ge=0.001, le=0.20),
     decimals: int = Query(default=3, ge=0, le=6),
     include_discarded: bool = Query(default=False),
-    score_aggregation: str = Query(default="mean", pattern="^(sum|mean)$"),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
     service: NormalityService = Depends(get_normality_service),
 ) -> NormalityReportRead:
     full = service.get_normality_report(
@@ -117,6 +123,28 @@ def get_project_variables_normality(
     )
     results = [item for item in full.results if item.target_type == "project_variable"]
     return full.model_copy(update={"results": results, "total_targets": len(results), "applicable_targets": sum(1 for item in results if item.classification in {'normal','non_normal','inconclusive'}), "normal_count": sum(1 for item in results if item.classification == 'normal'), "non_normal_count": sum(1 for item in results if item.classification == 'non_normal'), "inconclusive_count": sum(1 for item in results if item.classification == 'inconclusive'), "not_applicable_count": sum(1 for item in results if item.classification == 'not_applicable')})
+
+
+@router.get("/api/v1/forms/{form_id}/normality/histogram", response_model=NormalityHistogramRead)
+def get_normality_histogram(
+    form_id: str,
+    target_type: str = Query(pattern="^(dimension|instrument|project_variable)$"),
+    target_id: str = Query(),
+    bins: int = Query(default=10, ge=3, le=30),
+    decimals: int = Query(default=3, ge=0, le=6),
+    include_discarded: bool = Query(default=False),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
+    service: NormalityService = Depends(get_normality_service),
+) -> NormalityHistogramRead:
+    return service.get_histogram(
+        form_id,
+        target_type=target_type,
+        target_id=target_id,
+        bins=bins,
+        decimals=decimals,
+        include_discarded=include_discarded,
+        score_aggregation=score_aggregation,
+    )
 
 
 @router.post("/api/v1/forms/{form_id}/normality/run", response_model=NormalityRunRead)

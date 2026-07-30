@@ -17,6 +17,27 @@ type RequestOptions = RequestInit & {
   query?: Record<string, string | number | boolean | undefined | null>;
 };
 
+// FastAPI's 422 `detail` is an array of {loc, msg, ...} objects, not a string;
+// String(detail) on an array yields "[object Object]" and hides the real message.
+function formatErrorDetail(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((entry) => {
+        if (entry && typeof entry === "object" && "msg" in entry) {
+          const loc = Array.isArray((entry as { loc?: unknown[] }).loc)
+            ? (entry as { loc: unknown[] }).loc.join(".")
+            : null;
+          const msg = String((entry as { msg: unknown }).msg);
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return String(entry);
+      })
+      .join(" · ");
+  }
+  return JSON.stringify(detail);
+}
+
 function buildUrl(path: string, query?: RequestOptions["query"]) {
   const url = new URL(path, env.apiBaseUrl);
 
@@ -51,7 +72,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (!response.ok) {
     const message =
       typeof payload === "object" && payload !== null && "detail" in payload
-        ? String((payload as { detail: unknown }).detail)
+        ? formatErrorDetail((payload as { detail: unknown }).detail)
         : `Error HTTP ${response.status}`;
     throw new ApiError(message, response.status, payload);
   }

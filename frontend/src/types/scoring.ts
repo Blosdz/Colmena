@@ -56,6 +56,17 @@ export interface ScoreBandCreatePayload {
   color_hint?: string | null;
 }
 
+export interface ScoreBandUpdatePayload {
+  label?: string;
+  code?: string | null;
+  min_value?: number;
+  max_value?: number;
+  interpretation?: string | null;
+  recommendation?: string | null;
+  severity_order?: number;
+  color_hint?: string | null;
+}
+
 export interface ScoringConfigCreatePayload {
   instrument_id?: string | null;
   dimension_id?: string | null;
@@ -197,35 +208,6 @@ export interface ScoringRunResult {
   control_flags: ResponseControlFlag[];
 }
 
-export interface ScoringBandDistribution {
-  scoring_config_id: string;
-  scoring_config_name: string;
-  level: string;
-  n: number;
-  percent: number;
-  interpretation?: string | null;
-}
-
-export interface ControlScaleSummary {
-  control_scale_id: string;
-  name: string;
-  flag_status: "pass" | "warning" | "invalid";
-  n: number;
-  percent: number;
-}
-
-export interface ScoringResults {
-  form_id: string;
-  total_responses: number;
-  scored_responses: number;
-  valid_responses: number;
-  warning_responses: number;
-  invalid_responses: number;
-  band_distribution: ScoringBandDistribution[];
-  control_flags: ControlScaleSummary[];
-  warnings: string[];
-}
-
 export interface ScoredDataset {
   form_id: string;
   total_rows: number;
@@ -249,4 +231,40 @@ export interface ScoringPreview {
   warnings: string[];
   score_results: ResponseScore[];
   control_flags: ResponseControlFlag[];
+}
+
+export interface BaremoResolvedLevel {
+  label: string;
+  min_value: number;
+  max_value: number;
+  severity_order: number;
+  interpretation?: string | null;
+  source: string;
+  n: number;
+  percent: number;
+}
+
+export interface VariableBaremo {
+  scoring_config_id: string;
+  scoring_config_name: string;
+  variable_label: string;
+  scoring_level: string;
+  score_min?: number | null;
+  score_max?: number | null;
+  baremo_source: string;
+  valid_n: number;
+  mean_score?: number | null;
+  sd_score?: number | null;
+  mean_level?: string | null;
+  mean_interpretation?: string | null;
+  levels: BaremoResolvedLevel[];
+  warnings: string[];
+}
+
+export interface BaremoResolution {
+  form_id: string;
+  project_id: string;
+  resolved_variables: number;
+  items: VariableBaremo[];
+  warnings: string[];
 }

@@ -12,13 +12,14 @@ from app.models.form_question import FormQuestion
 from app.models.project_variable import ProjectVariable
 from app.schemas.normality import (
     NormalityDescriptiveContextRead,
+    NormalityHistogramRead,
     NormalityReportRead,
     NormalityRunRead,
     NormalityRunRequest,
     NormalityTestResultRead,
 )
 from app.services.dataset_service import DatasetService, QuestionColumnConfig
-from app.statistics.normality_engine import evaluate_numeric_normality
+from app.statistics.normality_engine import build_normal_overlay_histogram, evaluate_numeric_normality
 
 
 class NormalityService:
@@ -319,7 +320,7 @@ class NormalityService:
         alpha: float = 0.05,
         decimals: int = 3,
         include_discarded: bool = False,
-        score_aggregation: str = "mean",
+        score_aggregation: str = "sum",
     ) -> list[NormalityTestResultRead]:
         form, dataframe, mapping = self._get_form_context(form_id, include_discarded=include_discarded)
         discarded_excluded = not include_discarded and self._has_discarded_responses(form)
@@ -361,7 +362,7 @@ class NormalityService:
         alpha: float = 0.05,
         decimals: int = 3,
         include_discarded: bool = False,
-        score_aggregation: str = "mean",
+        score_aggregation: str = "sum",
     ) -> list[NormalityTestResultRead]:
         form, dataframe, mapping = self._get_form_context(form_id, include_discarded=include_discarded)
         discarded_excluded = not include_discarded and self._has_discarded_responses(form)
@@ -402,7 +403,7 @@ class NormalityService:
         alpha: float = 0.05,
         decimals: int = 3,
         include_discarded: bool = False,
-        score_aggregation: str = "mean",
+        score_aggregation: str = "sum",
     ) -> list[NormalityTestResultRead]:
         form, dataframe, mapping = self._get_form_context(form_id, include_discarded=include_discarded)
         discarded_excluded = not include_discarded and self._has_discarded_responses(form)
@@ -439,7 +440,7 @@ class NormalityService:
         alpha: float = 0.05,
         decimals: int = 3,
         include_discarded: bool = False,
-        score_aggregation: str = "mean",
+        score_aggregation: str = "sum",
     ) -> NormalityReportRead:
         form, dataframe, mapping = self._get_form_context(form_id, include_discarded=include_discarded)
         discarded_excluded = not include_discarded and self._has_discarded_responses(form)
@@ -509,6 +510,56 @@ class NormalityService:
             not_applicable_count=counts["not_applicable"],
             results=results,
             warnings=list(dict.fromkeys(warnings)),
+        )
+
+    def get_histogram(
+        self,
+        form_id: str,
+        *,
+        target_type: str,
+        target_id: str,
+        bins: int = 10,
+        decimals: int = 3,
+        include_discarded: bool = False,
+        score_aggregation: str = "sum",
+    ) -> NormalityHistogramRead:
+        form, dataframe, mapping = self._get_form_context(form_id, include_discarded=include_discarded)
+
+        if target_type == "dimension":
+            dimension = self._get_dimension_or_404(form, target_id)
+            questions = [
+                question
+                for question in self._active_questions(form)
+                if question.dimension_id == dimension.id and question.is_scored
+            ]
+            series, _ = self._aggregate_group_series(questions, dataframe, mapping, aggregation=score_aggregation)
+            target_name = dimension.name
+        elif target_type == "instrument":
+            instrument = self._get_instrument_or_404(form, target_id)
+            questions = [
+                question
+                for question in self._active_questions(form)
+                if question.instrument_id == instrument.id and question.is_scored
+            ]
+            series, _ = self._aggregate_group_series(questions, dataframe, mapping, aggregation=score_aggregation)
+            target_name = instrument.name
+        elif target_type == "project_variable":
+            variable = self._get_project_variable_or_404(form, target_id)
+            series, _ = self._project_variable_series(variable, form, dataframe, mapping, aggregation=score_aggregation)
+            target_name = variable.name
+        else:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid target_type")
+
+        if series is None:
+            histogram = {"mean": None, "std": None, "valid_n": 0, "bins": [], "curve": [], "warnings": ["non_numeric"]}
+        else:
+            histogram = build_normal_overlay_histogram(series, bins=bins, decimals=decimals)
+
+        return NormalityHistogramRead(
+            target_type=target_type,
+            target_id=target_id,
+            target_name=target_name,
+            **histogram,
         )
 
     def run_normality_analysis(self, form_id: str, payload: NormalityRunRequest) -> NormalityRunRead:

@@ -13,6 +13,7 @@ from app.services.group_comparison_service import GroupComparisonService
 from app.services.normality_service import NormalityService
 from app.services.project_service import ProjectService
 from app.services.project_variable_service import ProjectVariableService
+from app.services.scale_service import ScaleService
 from app.services.public_form_service import PublicFormService
 from app.services.response_service import ResponseService
 from app.services.scoring_config_service import ScoringConfigService
@@ -35,6 +36,7 @@ __all__ = [
     "NormalityService",
     "ProjectService",
     "ProjectVariableService",
+    "ScaleService",
     "PublicFormService",
     "ResponseService",
     "ScoringConfigService",

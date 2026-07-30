@@ -106,6 +106,26 @@ class AnswerUpdateRequest(BaseModel):
         return cleaned or None
 
 
+class AnswerUpsertRequest(AnswerUpdateRequest):
+    """Edición de celda estilo grilla: crea el answer si aún no existe.
+
+    `raw_value` permite mandar el valor tecleado (p. ej. "3" en un ítem Likert)
+    y que el backend lo resuelva a la opción/valor tipado correspondiente.
+    `clear` vacía la celda.
+    """
+
+    raw_value: str | None = None
+    clear: bool = False
+
+    @field_validator("raw_value")
+    @classmethod
+    def normalize_raw_value(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
 class AnswerUpdateRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -8,8 +8,12 @@ pandas
 numpy
 scipy
 statsmodels
+factor_analyzer
+scikit-learn<1.6
 python-docx
 openpyxl
+matplotlib
 alembic
 pytest
 httpx
+redis

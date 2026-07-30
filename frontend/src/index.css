@@ -43,6 +43,43 @@ textarea {
   font: inherit;
 }
 
+/* ── Selects: soporte de tema del dispositivo ──── */
+/* color-scheme hace que el desplegable nativo y su
+   flecha sigan el tema claro/oscuro del dispositivo. */
+select {
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Caja del select. !important para vencer las
+     utilidades bg-white/text-dark aplicadas inline
+     en los distintos selects de la app. */
+  select {
+    background-color: #20242b !important;
+    color: #e5e7eb !important;
+    border-color: rgba(255, 255, 255, 0.14) !important;
+  }
+
+  select:hover {
+    border-color: rgba(245, 178, 26, 0.5) !important;
+  }
+
+  select:focus {
+    border-color: #f5b21a !important;
+  }
+
+  select:disabled {
+    color: #9aa1ad !important;
+    opacity: 0.6;
+  }
+
+  /* Lista de opciones desplegada: legible sobre fondo oscuro. */
+  select option {
+    background-color: #20242b;
+    color: #e5e7eb;
+  }
+}
+
 input[type="checkbox"] {
   accent-color: #F5B21A;
   width: 16px;

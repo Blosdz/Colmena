@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.schemas.dataset import (
     AnswerUpdateRead,
     AnswerUpdateRequest,
+    AnswerUpsertRequest,
     CompletenessSummaryRead,
     DataDictionaryRead,
     DatasetExportListResponse,
@@ -135,6 +136,17 @@ def update_form_answer(
     service: DatasetService = Depends(get_dataset_service),
 ) -> AnswerUpdateRead:
     return service.update_answer_value(answer_id, payload)
+
+
+@router.put("/api/v1/form-responses/{response_id}/answers/{question_id}", response_model=AnswerUpdateRead)
+def upsert_form_answer(
+    response_id: str,
+    question_id: str,
+    payload: AnswerUpsertRequest,
+    service: DatasetService = Depends(get_dataset_service),
+) -> AnswerUpdateRead:
+    """Edita una celda de la grilla de captura manual, creando el answer si no existe."""
+    return service.upsert_answer_value(response_id, question_id, payload)
 
 
 @router.patch("/api/v1/form-responses/{response_id}/status", response_model=ResponseStatusRead)

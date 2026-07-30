@@ -94,7 +94,7 @@ class ScoringConfigBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     code: str | None = Field(default=None, max_length=100)
     scoring_level: str
-    aggregation_method: str = "mean"
+    aggregation_method: str = "sum"
     missing_policy: str = "allow_partial"
     min_answered_items: int | None = Field(default=None, ge=0)
     min_completion_percent: float | None = Field(default=None, ge=0, le=100)
@@ -212,9 +212,19 @@ class ScoringConfigRead(ScoringConfigBase):
     id: str
     project_id: str
     form_id: str
-    bands: list[ScoreBandRead] = Field(default_factory=list)
+    bands: list[ScoreBandRead] = Field(default_factory=list, validation_alias="score_bands")
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("bands", mode="before")
+    @classmethod
+    def filter_active_bands(cls, value: Any) -> Any:
+        # `score_bands` is the raw ORM relationship and includes soft-deleted
+        # rows; only expose the ones that are still active (mirrors
+        # ScoringConfigService.list_score_bands).
+        if value is None:
+            return []
+        return [band for band in value if getattr(band, "deleted_at", None) is None]
 
 
 class ScoringConfigListRead(BaseModel):
@@ -501,3 +511,39 @@ class ScoringOptionsRead(BaseModel):
     reverse_scored_questions: list[dict[str, Any]]
     configs: list[ScoringConfigRead]
     control_scales: list[ControlScaleRead]
+
+
+class BaremoLevelRead(BaseModel):
+    label: str
+    min_value: float
+    max_value: float
+    severity_order: int
+    interpretation: str | None = None
+    source: str
+    n: int = 0
+    percent: float = 0.0
+
+
+class VariableBaremoRead(BaseModel):
+    scoring_config_id: str
+    scoring_config_name: str
+    variable_label: str
+    scoring_level: str
+    score_min: float | None = None
+    score_max: float | None = None
+    baremo_source: str
+    valid_n: int
+    mean_score: float | None = None
+    sd_score: float | None = None
+    mean_level: str | None = None
+    mean_interpretation: str | None = None
+    levels: list[BaremoLevelRead]
+    warnings: list[str]
+
+
+class BaremoResolutionRead(BaseModel):
+    form_id: str
+    project_id: str
+    resolved_variables: int
+    items: list[VariableBaremoRead]
+    warnings: list[str]

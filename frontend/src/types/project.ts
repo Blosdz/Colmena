@@ -73,6 +73,8 @@ export interface ProjectVariable {
   code?: string | null;
   description?: string | null;
   variable_role: string;
+  variable_classification?: string | null;
+  measurement_mode: string;
   measurement_level: string;
   data_type: string;
   is_required_for_analysis: boolean;
@@ -86,6 +88,8 @@ export interface ProjectVariableCreatePayload {
   code?: string | null;
   description?: string | null;
   variable_role: string;
+  variable_classification?: string | null;
+  measurement_mode?: string;
   measurement_level: string;
   data_type: string;
   is_required_for_analysis?: boolean;

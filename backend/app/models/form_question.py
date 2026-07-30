@@ -32,6 +32,12 @@ class FormQuestion(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         nullable=True,
         index=True,
     )
+    # Escala propia del ítem; si es NULL hereda la del instrumento (default_scale_id).
+    scale_id: Mapped[str | None] = mapped_column(
+        ForeignKey("scales.id"),
+        nullable=True,
+        index=True,
+    )
     code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     label: Mapped[str] = mapped_column(Text, nullable=False)
     help_text: Mapped[str | None] = mapped_column(Text, nullable=True)

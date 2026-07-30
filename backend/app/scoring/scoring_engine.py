@@ -96,7 +96,7 @@ def apply_missing_policy(
     min_answered_items = getattr(config, "min_answered_items", None)
     min_completion_percent = getattr(config, "min_completion_percent", None)
     missing_policy = getattr(config, "missing_policy", "allow_partial")
-    aggregation_method = getattr(config, "aggregation_method", "mean")
+    aggregation_method = getattr(config, "aggregation_method", "sum")
 
     if answered_items == 0:
         warnings.append(insufficient_items())

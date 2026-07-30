@@ -8,6 +8,7 @@ export type ParsedQuestion = {
   reversed: boolean;
   required: boolean;
   scored: boolean;
+  isImportance: boolean;
   status: "ready" | "missing_dimension" | "missing_scale" | "empty_text" | "review";
 };
 
@@ -59,6 +60,7 @@ export function parseBulkQuestions(rawText: string): ParsedQuestion[] {
       reversed,
       required,
       scored: true, // by default true for Likert
+      isImportance: false,
       status
     };
   });

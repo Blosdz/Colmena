@@ -305,13 +305,16 @@ class DescriptiveService:
             response.deleted_at is None and response.status == "discarded" for response in form.responses
         )
         dimension_question_columns: dict[str, list[str]] = {}
+        importance_question_columns: dict[str, list[str]] = {}
         dimension_meta: dict[str, tuple[FormDimension, list[FormQuestion]]] = {}
         for instrument in self._active_instruments(form):
             for dimension in self._active_dimensions(instrument):
                 questions = [
                     question
                     for question in self._active_questions(form)
-                    if question.dimension_id == dimension.id and question.is_scored
+                    if question.dimension_id == dimension.id
+                    and question.is_scored
+                    and question.question_role != "importance"
                 ]
                 columns = [
                     column_name
@@ -321,9 +324,28 @@ class DescriptiveService:
                 dimension_question_columns[dimension.id] = columns
                 dimension_meta[dimension.id] = (dimension, questions)
 
+                importance_questions = [
+                    question
+                    for question in self._active_questions(form)
+                    if question.dimension_id == dimension.id
+                    and question.is_scored
+                    and question.question_role == "importance"
+                ]
+                importance_columns = [
+                    column_name
+                    for question in importance_questions
+                    if (column_name := self._get_score_column(question, mapping, dataframe)) is not None
+                ]
+                importance_question_columns[dimension.id] = importance_columns
+
         score_tables = compute_dimension_scores(
             dataframe,
             dimension_question_columns,
+            aggregation=score_aggregation,
+        )
+        importance_score_tables = compute_dimension_scores(
+            dataframe,
+            importance_question_columns,
             aggregation=score_aggregation,
         )
 
@@ -342,6 +364,17 @@ class DescriptiveService:
                 discarded_responses_excluded=discarded_excluded,
                 scored_item_count=scored_item_count,
             )
+
+            importance_item_count = len(importance_question_columns[dimension_id])
+            importance_frame = importance_score_tables[dimension_id]
+            importance = (
+                self.build_numeric_descriptive(importance_frame["score"], decimals=decimals)
+                if importance_item_count
+                else None
+            )
+            if importance_item_count == 0:
+                warnings = [*warnings, "no_importance_items"]
+
             results.append(
                 DimensionDescriptiveRead(
                     dimension_id=dimension.id,
@@ -351,7 +384,8 @@ class DescriptiveService:
                     scored_item_count=scored_item_count,
                     aggregation=score_aggregation,
                     numeric=numeric,
-                    warnings=warnings,
+                    importance=importance,
+                    warnings=list(dict.fromkeys(warnings)),
                 )
             )
         return results
@@ -592,7 +626,7 @@ class DescriptiveService:
         *,
         include_discarded: bool = False,
         decimals: int = 3,
-        score_aggregation: str = "mean",
+        score_aggregation: str = "sum",
     ) -> list[DimensionDescriptiveRead]:
         return self.build_dimension_scores(
             form_id,
@@ -607,7 +641,7 @@ class DescriptiveService:
         *,
         include_discarded: bool = False,
         decimals: int = 3,
-        score_aggregation: str = "mean",
+        score_aggregation: str = "sum",
     ) -> list[InstrumentDescriptiveRead]:
         return self.build_instrument_scores(
             form_id,
@@ -622,7 +656,7 @@ class DescriptiveService:
         *,
         include_discarded: bool = False,
         decimals: int = 3,
-        score_aggregation: str = "mean",
+        score_aggregation: str = "sum",
     ) -> FormDescriptiveReportRead:
         form, dataframe, mapping = self._get_form_context(form_id, include_discarded=include_discarded)
         discarded_excluded = not include_discarded and any(

@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
+from app.core.realtime import publish_response_event
 from app.models.form import Form
 from app.models.form_answer import FormAnswer
 from app.models.form_dimension import FormDimension
@@ -38,7 +39,13 @@ class PublicFormService:
         api_url = None
         if form.public_slug:
             base_url = self.settings.public_base_url.rstrip("/")
-            public_url = f"{base_url}/public/forms/{form.public_slug}"
+            # El enlace público se sirve vía AppThesis (gateway) como tenant, si está configurado.
+            gateway = self.settings.appthesis_public_url.rstrip("/")
+            if gateway:
+                public_url = f"{gateway}/#/{self.settings.tenant_slug}/forms/{form.public_slug}"
+            else:
+                public_url = f"{base_url}/public/forms/{form.public_slug}"
+            # La API pública siempre apunta al backend de Colmena.
             api_url = f"{base_url}/api/public/forms/{form.public_slug}"
         return PublicFormLinkRead(
             form_id=form.id,
@@ -401,6 +408,14 @@ class PublicFormService:
 
         self.db.commit()
         self.db.refresh(response)
+        publish_response_event(
+            form_id=response.form_id,
+            project_id=response.project_id,
+            response_id=response.id,
+            response_status=response.status,
+            submitted_at=response.submitted_at or response.created_at,
+            source=response.source,
+        )
         return PublicFormResponseRead(
             status="submitted",
             response_id=response.id,

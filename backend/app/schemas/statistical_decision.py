@@ -35,7 +35,7 @@ class StatisticalDecisionRequest(BaseModel):
     variables: list[DecisionVariableInput]
     alpha: float = Field(default=0.05, ge=0.001, le=0.20)
     normality_method: str = Field(default="auto")
-    score_aggregation: str = Field(default="mean")
+    score_aggregation: str = Field(default="sum")
     include_discarded: bool = False
     store_result: bool = False
 

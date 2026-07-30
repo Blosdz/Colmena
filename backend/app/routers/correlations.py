@@ -47,7 +47,7 @@ def get_instrument_dimensions_correlations(
     alpha: float = Query(default=0.05, ge=0.001, le=0.20),
     decimals: int = Query(default=3, ge=0, le=6),
     include_discarded: bool = Query(default=False),
-    score_aggregation: str = Query(default="mean", pattern="^(sum|mean)$"),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
     service: CorrelationService = Depends(get_correlation_service),
 ) -> CorrelationMatrixRead:
     return service.get_instrument_dimension_matrix(
@@ -68,7 +68,7 @@ def get_instruments_correlations(
     alpha: float = Query(default=0.05, ge=0.001, le=0.20),
     decimals: int = Query(default=3, ge=0, le=6),
     include_discarded: bool = Query(default=False),
-    score_aggregation: str = Query(default="mean", pattern="^(sum|mean)$"),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
     service: CorrelationService = Depends(get_correlation_service),
 ) -> CorrelationMatrixRead:
     return service.get_instruments_matrix(
@@ -88,7 +88,7 @@ def get_project_variables_correlations(
     alpha: float = Query(default=0.05, ge=0.001, le=0.20),
     decimals: int = Query(default=3, ge=0, le=6),
     include_discarded: bool = Query(default=False),
-    score_aggregation: str = Query(default="mean", pattern="^(sum|mean)$"),
+    score_aggregation: str = Query(default="sum", pattern="^(sum|mean)$"),
     service: CorrelationService = Depends(get_correlation_service),
 ) -> CorrelationMatrixRead:
     return service.get_project_variables_matrix(

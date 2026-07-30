@@ -1,4 +1,6 @@
 .venv
+venv
+backend/venv/
 __pycache__
 *.pyc
 .env
@@ -7,8 +9,10 @@ dist
 .DS_Store
 data/db/*.db
 data/db/*.sqlite
+data/db/*.bak*
 backend/data/db/*.db
 backend/data/db/*.sqlite
+backend/data/db/*.bak*
 
 # Config local de Claude Code
 .claude/

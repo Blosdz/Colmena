@@ -52,6 +52,10 @@ from app.statistics.descriptive_engine import (
     safe_skewness,
 )
 from app.statistics.frequency_engine import frequency_table, multiple_choice_frequency
+from app.statistics.reliability_engine import (
+    build_reliability_interpretation,
+    cronbach_alpha,
+)
 from app.statistics.normality_engine import (
     build_normality_interpretation,
     detect_outliers_iqr,
@@ -70,6 +74,7 @@ __all__ = [
     "build_group_descriptives",
     "build_pair_diagnostics",
     "build_normality_interpretation",
+    "build_reliability_interpretation",
     "build_score_matrix",
     "chi_square_test",
     "classify_correlation_direction",
@@ -85,6 +90,7 @@ __all__ = [
     "compute_group_score",
     "compute_instrument_scores",
     "cramers_v",
+    "cronbach_alpha",
     "detect_outliers_by_group",
     "detect_outliers_iqr",
     "detect_sparse_table",

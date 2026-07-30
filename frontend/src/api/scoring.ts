@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import type {
+  BaremoResolution,
   ControlScale,
   ControlScaleCreatePayload,
   ControlScaleItem,
@@ -7,13 +8,13 @@ import type {
   ResponseScore,
   ScoreBand,
   ScoreBandCreatePayload,
+  ScoreBandUpdatePayload,
   ScoredDataset,
   ScoringConfig,
   ScoringConfigCreatePayload,
   ScoringConfigList,
   ScoringOptions,
   ScoringPreview,
-  ScoringResults,
   ScoringRunPayload,
   ScoringRunResult,
 } from "../types/scoring";
@@ -32,6 +33,14 @@ export function listScoreBands(configId: string) {
 
 export function createScoreBand(configId: string, payload: ScoreBandCreatePayload) {
   return apiClient.post<ScoreBand>(`/api/v1/scoring/configs/${configId}/bands`, payload);
+}
+
+export function updateScoreBand(bandId: string, payload: ScoreBandUpdatePayload) {
+  return apiClient.patch<ScoreBand>(`/api/v1/scoring/bands/${bandId}`, payload);
+}
+
+export function deleteScoreBand(bandId: string) {
+  return apiClient.delete<{ status: string }>(`/api/v1/scoring/bands/${bandId}`);
 }
 
 export function listControlScales(formId: string) {
@@ -58,10 +67,6 @@ export function runScoring(formId: string, payload: ScoringRunPayload) {
   return apiClient.post<ScoringRunResult>(`/api/v1/forms/${formId}/scoring/run`, payload);
 }
 
-export function getScoringResults(formId: string) {
-  return apiClient.get<ScoringResults>(`/api/v1/forms/${formId}/scoring/results`);
-}
-
 export function getScoringDataset(formId: string) {
   return apiClient.get<ScoredDataset>(`/api/v1/forms/${formId}/scoring/dataset`);
 }
@@ -72,4 +77,8 @@ export function getScoringOptions(formId: string) {
 
 export function getResponseScores(responseId: string) {
   return apiClient.get<ResponseScore[]>(`/api/v1/form-responses/${responseId}/scores`);
+}
+
+export function getBaremoResolution(formId: string, levelsCount = 3) {
+  return apiClient.get<BaremoResolution>(`/api/v1/forms/${formId}/scoring/baremos/resolution?levels_count=${levelsCount}`);
 }

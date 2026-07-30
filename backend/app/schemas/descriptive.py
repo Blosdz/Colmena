@@ -26,9 +26,13 @@ class NumericDescriptiveRead(BaseModel):
     range: float | None
     skewness: float | None
     kurtosis: float | None
+    coefficient_variation: float | None
+    percentile_10: float | None
+    percentile_20: float | None
     percentile_25: float | None
     percentile_50: float | None
     percentile_75: float | None
+    percentile_90: float | None
 
 
 class QuestionDescriptiveRead(BaseModel):
@@ -55,6 +59,7 @@ class DimensionDescriptiveRead(BaseModel):
     scored_item_count: int
     aggregation: str
     numeric: NumericDescriptiveRead | None
+    importance: NumericDescriptiveRead | None = None
     warnings: list[str]
 
 
@@ -165,7 +170,7 @@ class AnalysisRunRead(BaseModel):
 class DescriptiveRunRequest(BaseModel):
     include_discarded: bool = False
     decimals: int = Field(default=3, ge=0, le=6)
-    score_aggregation: str = Field(default="mean")
+    score_aggregation: str = Field(default="sum")
     store_result: bool = True
 
     @field_validator("score_aggregation")

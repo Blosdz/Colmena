@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.form_dimension import FormDimension
 from app.models.form_instrument import FormInstrument
+from app.models.form_question import FormQuestion
+from app.models.form_question_option import FormQuestionOption
 from app.models.project_variable import ProjectVariable
 from app.models.score_band import ScoreBand
 from app.models.scoring_config import ScoringConfig
@@ -100,10 +102,72 @@ class ScoringConfigService:
             warnings.extend(validate_bands_no_overlap(config.score_bands))
         return list(dict.fromkeys(warnings))
 
+    def _compute_theoretical_range(
+        self,
+        form_id: str,
+        dimension_id: str | None,
+        instrument_id: str | None,
+        project_variable_id: str | None,
+    ) -> tuple[float, float] | None:
+        """Suma el rango teórico (min/max posible) de los ítems puntuados en el
+        alcance dado, a partir del score de sus opciones de escala. Permite que
+        un scoring_config recién creado (sin bandas ni respuestas todavía)
+        tenga un rango sobre el cual calcular baremos automáticamente."""
+        filters = [
+            FormQuestion.form_id == form_id,
+            FormQuestion.is_scored.is_(True),
+            FormQuestion.deleted_at.is_(None),
+        ]
+        if dimension_id is not None:
+            filters.append(FormQuestion.dimension_id == dimension_id)
+        elif instrument_id is not None:
+            filters.append(FormQuestion.instrument_id == instrument_id)
+        elif project_variable_id is not None:
+            filters.append(FormQuestion.project_variable_id == project_variable_id)
+        else:
+            return None
+
+        questions = list(self.db.scalars(select(FormQuestion).where(*filters)).all())
+        if not questions:
+            return None
+
+        total_min = 0.0
+        total_max = 0.0
+        contributed = False
+        for question in questions:
+            scores = list(
+                self.db.scalars(
+                    select(FormQuestionOption.score).where(
+                        FormQuestionOption.question_id == question.id,
+                        FormQuestionOption.deleted_at.is_(None),
+                        FormQuestionOption.score.is_not(None),
+                    )
+                ).all()
+            )
+            if scores:
+                total_min += min(scores)
+                total_max += max(scores)
+                contributed = True
+            elif question.min_value is not None and question.max_value is not None:
+                total_min += question.min_value
+                total_max += question.max_value
+                contributed = True
+
+        return (total_min, total_max) if contributed else None
+
     def create_scoring_config(self, form_id: str, payload: ScoringConfigCreate) -> ScoringConfig:
         form = self._get_form(form_id)
         self._validate_scope(form_id, payload)
         data = payload.model_dump(exclude={"bands"})
+        if data.get("score_min") is None and data.get("score_max") is None:
+            computed = self._compute_theoretical_range(
+                form_id,
+                dimension_id=data.get("dimension_id"),
+                instrument_id=data.get("instrument_id"),
+                project_variable_id=data.get("project_variable_id"),
+            )
+            if computed is not None:
+                data["score_min"], data["score_max"] = computed
         config = ScoringConfig(project_id=form.project_id, form_id=form.id, **data)
         self.db.add(config)
         self.db.flush()

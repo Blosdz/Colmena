@@ -16,6 +16,11 @@ class ProjectVariable(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin
     code: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     variable_role: Mapped[str] = mapped_column(String(50), nullable=False, default="main", index=True)
+    # Clasificación metodológica opcional: "independent" | "dependent" | "segment".
+    variable_classification: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Cómo se mide la variable: "instrument" (cuestionario, ítems que se suman) o "direct" (un solo valor).
+    measurement_mode: Mapped[str] = mapped_column(String(50), nullable=False, default="instrument")
+    # Derivado a partir de measurement_mode + data_type (ver ProjectVariableBase.derive_measurement_level).
     measurement_level: Mapped[str] = mapped_column(String(50), nullable=False, default="ordinal")
     data_type: Mapped[str] = mapped_column(String(50), nullable=False, default="numeric")
     is_required_for_analysis: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

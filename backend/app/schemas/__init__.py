@@ -175,6 +175,14 @@ from app.schemas.project_variable import (
     ProjectVariableRead,
     ProjectVariableUpdate,
 )
+from app.schemas.reliability import (
+    CronbachAlphaRead,
+    ItemReliabilityRead,
+    ReliabilityReportRead,
+    ReliabilityRunRead,
+    ReliabilityRunRequest,
+    ReliabilityTargetRead,
+)
 from app.schemas.scoring import (
     ControlScaleCreate,
     ControlScaleItemCreate,
@@ -364,6 +372,12 @@ __all__ = [
     "ControlScaleRead",
     "ControlScaleSummaryRead",
     "ControlScaleUpdate",
+    "CronbachAlphaRead",
+    "ItemReliabilityRead",
+    "ReliabilityReportRead",
+    "ReliabilityRunRead",
+    "ReliabilityRunRequest",
+    "ReliabilityTargetRead",
     "ResponseControlFlagRead",
     "ResponseScoreRead",
     "OrchestratedAnalysisRead",

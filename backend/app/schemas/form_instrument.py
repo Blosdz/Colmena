@@ -9,12 +9,16 @@ class FormInstrumentBase(BaseModel):
     author: str | None = Field(default=None, max_length=255)
     year: int | None = Field(default=None, ge=0, le=3000)
     description: str | None = None
+    objective: str | None = None
+    application_mode: str | None = Field(default=None, max_length=50)
     response_scale_name: str | None = Field(default=None, max_length=255)
     scoring_method: str | None = Field(default=None, max_length=255)
     reverse_scoring_enabled: bool = False
     sort_order: int = Field(default=0, ge=0)
 
-    @field_validator("acronym", "author", "description", "response_scale_name", "scoring_method")
+    @field_validator(
+        "acronym", "author", "description", "objective", "application_mode", "response_scale_name", "scoring_method"
+    )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -60,6 +64,8 @@ class FormInstrumentRead(BaseModel):
     author: str | None
     year: int | None
     description: str | None
+    objective: str | None
+    application_mode: str | None
     response_scale_name: str | None
     scoring_method: str | None
     reverse_scoring_enabled: bool

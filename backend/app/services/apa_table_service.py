@@ -40,6 +40,7 @@ from app.services.descriptive_service import DescriptiveService
 from app.services.group_comparison_service import GroupComparisonService
 from app.services.normality_service import NormalityService
 from app.tables.apa_table_builder import (
+    build_baremo_table,
     build_categorical_association_table,
     build_control_scale_flags_table,
     build_correlation_matrix_table,
@@ -223,6 +224,13 @@ class ApaTableService:
                 decimals=3,
             ),
             "score_band_distribution": lambda: build_score_band_distribution_table(
+                title=title,
+                rows=[],
+                warnings=[warning],
+                source={"form_id": form_id, "source_type": "live"},
+                decimals=3,
+            ),
+            "baremo_variables": lambda: build_baremo_table(
                 title=title,
                 rows=[],
                 warnings=[warning],
@@ -625,6 +633,38 @@ class ApaTableService:
             decimals=request.decimals,
         )
 
+    @staticmethod
+    def baremo_resolution_rows(resolution: Any) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for item in resolution.items:
+            for level in item.levels:
+                rows.append(
+                    {
+                        "variable": item.variable_label,
+                        "level": level.label,
+                        "range": f"{level.min_value} - {level.max_value}",
+                        "n": level.n,
+                        "percent": level.percent,
+                        "interpretation": level.interpretation
+                        or (f"Nivel del promedio ({item.mean_score})" if item.mean_level == level.label else None),
+                    }
+                )
+        return rows
+
+    def generate_live_baremo_table(self, form_id: str, request: ApaTableRequest) -> ApaTableRead:
+        levels_count = int((request.options or {}).get("levels_count", 3))
+        resolution = self.advanced_scoring_service.resolve_variable_baremos(form_id, levels_count=levels_count)
+        rows = self.baremo_resolution_rows(resolution)
+        if not rows:
+            return self._build_empty_table("baremo_variables", form_id, build_table_title("baremo_variables"), "no_scoring_results")
+        return build_baremo_table(
+            title=build_table_title("baremo_variables", "variables del estudio"),
+            rows=rows,
+            warnings=resolution.warnings,
+            source={"form_id": form_id, "source_type": "live"},
+            decimals=request.decimals,
+        )
+
     def generate_live_control_scale_flags_table(self, form_id: str, request: ApaTableRequest) -> ApaTableRead:
         flags = self.advanced_scoring_service.get_control_flag_summary(form_id)
         rows = [
@@ -776,7 +816,7 @@ class ApaTableService:
                         score_aggregation=score_aggregation,
                     ),
                 )
-                for table_type in ["scoring_summary", "score_band_distribution", "control_scale_flags"]
+                for table_type in ["scoring_summary", "score_band_distribution", "baremo_variables", "control_scale_flags"]
             ]
             warnings = [warning for table in tables for warning in table.warnings]
             return ApaTableBatchRead(
@@ -841,6 +881,8 @@ class ApaTableService:
             return self.generate_live_score_band_distribution_table(form_id, request)
         if request.table_type == "control_scale_flags":
             return self.generate_live_control_scale_flags_table(form_id, request)
+        if request.table_type == "baremo_variables":
+            return self.generate_live_baremo_table(form_id, request)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported live APA table type")
 
     def generate_apa_tables_batch(self, form_id: str, request: ApaTableBatchRequest) -> ApaTableBatchRead:
@@ -958,6 +1000,7 @@ class ApaTableService:
                 [
                     ApaTableRecommendationRead(table_type="scoring_summary", reason="Existen puntajes avanzados calculados para resumir instrumentos, dimensiones o variables configuradas."),
                     ApaTableRecommendationRead(table_type="score_band_distribution", reason="Existen baremos asignados y distribuciones por nivel interpretativo."),
+                    ApaTableRecommendationRead(table_type="baremo_variables", reason="Existen puntajes por variable aptos para resolver baremos y generar la tabla de tesis."),
                 ]
             )
         if scoring_results.control_flags:
@@ -978,6 +1021,7 @@ class ApaTableService:
                 "scoring_summary",
                 "score_band_distribution",
                 "control_scale_flags",
+                "baremo_variables",
                 "orchestrated_summary",
             ],
             analysis_runs=[

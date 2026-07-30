@@ -10,11 +10,15 @@ class Settings(BaseSettings):
     environment: str = Field(default="development", alias="COLMENA_ENV")
     db_path: str = Field(default="./data/db/colmena.db", alias="COLMENA_DB_PATH")
     public_base_url: str = Field(default="http://127.0.0.1:8080", alias="COLMENA_PUBLIC_BASE_URL")
+    # Gateway público (AppThesis) que expone los formularios de Colmena como tenant.
+    appthesis_public_url: str = Field(default="", alias="APPTHESIS_PUBLIC_URL")
+    tenant_slug: str = Field(default="colmena", alias="COLMENA_SLUG")
     api_v1_prefix: str = "/api/v1"
     thesis_api_base_url: str = Field(
         default="http://localhost:3000", alias="THESIS_API_BASE_URL"
     )
     cors_extra_origins: str = Field(default="", alias="COLMENA_CORS_EXTRA_ORIGINS")
+    redis_url: str = Field(default="redis://127.0.0.1:6379/0", alias="COLMENA_REDIS_URL")
 
     model_config = SettingsConfigDict(
         env_file=".env",

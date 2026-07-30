@@ -1,7 +1,8 @@
 from typing import Any
 
+import numpy as np
 import pandas as pd
-from scipy.stats import normaltest, shapiro
+from scipy.stats import norm, normaltest, shapiro
 from statsmodels.stats.diagnostic import lilliefors
 
 from app.statistics.descriptive_engine import numeric_descriptive
@@ -48,6 +49,78 @@ def build_normality_interpretation(classification: str, p_value: float | None, a
         "No fue posible establecer una clasificación confiable de normalidad con los datos disponibles. "
         "Se recomienda revisar el tamaño muestral, valores constantes, datos faltantes o el tipo de variable."
     )
+
+
+def build_normal_overlay_histogram(
+    series: pd.Series,
+    *,
+    bins: int = 10,
+    decimals: int = 3,
+) -> dict[str, Any]:
+    """Bins de histograma + curva normal teorica (escalada a conteos) para superponer.
+
+    La curva se escala a conteos (no a densidad pura) multiplicando la densidad de
+    la normal por ``n * bin_width``, que es la forma estandar de superponer una
+    curva normal sobre un histograma de frecuencias absolutas.
+    """
+    numeric = pd.to_numeric(series, errors="coerce")
+    valid = numeric.dropna()
+    valid_n = int(valid.size)
+
+    if valid_n < 5:
+        return {
+            "mean": None,
+            "std": None,
+            "valid_n": valid_n,
+            "bins": [],
+            "curve": [],
+            "warnings": ["insufficient_data"],
+        }
+
+    if valid.nunique(dropna=True) <= 1:
+        return {
+            "mean": round_nullable(float(valid.mean()), decimals),
+            "std": 0.0,
+            "valid_n": valid_n,
+            "bins": [],
+            "curve": [],
+            "warnings": ["constant_values"],
+        }
+
+    values = valid.to_numpy()
+    mean = float(values.mean())
+    std = float(values.std(ddof=1))
+
+    counts, edges = np.histogram(values, bins=bins)
+    bin_width = float(edges[1] - edges[0])
+    histogram_bins = [
+        {
+            "bin_start": round_nullable(float(edges[i]), decimals),
+            "bin_end": round_nullable(float(edges[i + 1]), decimals),
+            "count": int(counts[i]),
+        }
+        for i in range(len(counts))
+    ]
+
+    curve_x = np.linspace(float(edges[0]), float(edges[-1]), 100)
+    curve_y = norm.pdf(curve_x, loc=mean, scale=std) * valid_n * bin_width
+    curve = [
+        {"x": round_nullable(float(x), decimals), "y": round_nullable(float(y), decimals)}
+        for x, y in zip(curve_x, curve_y)
+    ]
+
+    warnings: list[str] = []
+    if valid_n < 30:
+        warnings.append("small_sample_low_power")
+
+    return {
+        "mean": round_nullable(mean, decimals),
+        "std": round_nullable(std, decimals),
+        "valid_n": valid_n,
+        "bins": histogram_bins,
+        "curve": curve,
+        "warnings": warnings,
+    }
 
 
 def evaluate_numeric_normality(
@@ -138,7 +211,7 @@ def evaluate_numeric_normality(
     def _choose_auto() -> str:
         if valid_n < 3:
             return "not_applicable"
-        if valid_n <= 5000:
+        if valid_n <= 50:
             return "shapiro"
         return "lilliefors"
 

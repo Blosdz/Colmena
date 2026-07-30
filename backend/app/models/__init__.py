@@ -19,6 +19,7 @@ from app.models.project_demographics import ProjectDemographics
 from app.models.project_variable import ProjectVariable
 from app.models.response_control_flag import ResponseControlFlag
 from app.models.response_score import ResponseScore
+from app.models.scale import Scale, ScaleOption
 from app.models.score_band import ScoreBand
 from app.models.scoring_config import ScoringConfig
 from app.models.type_research import TypeResearch
@@ -46,6 +47,8 @@ __all__ = [
     "ProjectVariable",
     "ResponseControlFlag",
     "ResponseScore",
+    "Scale",
+    "ScaleOption",
     "ScoreBand",
     "ScoringConfig",
     "TypeResearch",

@@ -1,19 +1,22 @@
 import {
   Archive,
   BarChart3,
-  FileText,
+  ChevronDown,
+  FolderKanban,
   Home,
   ListChecks,
   Plus,
   Settings,
-  Sparkles,
   LayoutDashboard
 } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
+import { listProjects } from "../../api/projects";
 import { BrandLogo } from "../../brand/BrandLogo";
 import { cn } from "../../utils/cn";
-import { getActiveProjectId } from "../../utils/activeProject";
+import { getActiveProjectId, setActiveProjectId } from "../../utils/activeProject";
+import { ColmenaMenuButton } from "./ColmenaMenuButton";
 
 type NavItem = {
   to: string;
@@ -25,25 +28,72 @@ type NavItem = {
 
 type NavGroup = {
   title?: string;
+  beforeItems?: React.ReactNode;
   items: NavItem[];
 };
 
-export function Sidebar() {
+type SidebarProps = {
+  collapsed?: boolean;
+  onToggle?: () => void;
+};
+
+export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Active project resolution
   // We try to grab it from URL, or fallback to localStorage
   const match = location.pathname.match(/^\/project\/([a-zA-Z0-9-]+)/);
   const routeProjectId = match ? match[1] : null;
   const activeProjectId = (routeProjectId && routeProjectId !== "new") ? routeProjectId : getActiveProjectId();
-  
+
   const hasProject = Boolean(activeProjectId && activeProjectId !== "new");
+
+  const projectsQuery = useQuery({
+    queryKey: ["sidebar-projects"],
+    queryFn: listProjects,
+  });
+  const projects = projectsQuery.data?.items ?? [];
+
+  const handleSelectProject = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const projectId = event.target.value;
+    if (!projectId) return;
+    setActiveProjectId(projectId);
+    navigate(`/project/${projectId}`);
+  };
+
+  const projectSelector = (
+    <div className="mb-2 px-1">
+      <div className="relative">
+        <FolderKanban className="pointer-events-none absolute left-2.5 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-muted/60" />
+        <select
+          value={hasProject ? (activeProjectId as string) : ""}
+          onChange={handleSelectProject}
+          disabled={projectsQuery.isLoading || projects.length === 0}
+          className="w-full appearance-none rounded-xl border border-[#E6E8EB] bg-white py-2 pl-8 pr-8 text-[12.5px] font-medium text-dark shadow-sm outline-none transition-colors hover:border-amber/40 focus:border-amber/60 focus:ring-1 focus:ring-amber/20 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <option value="" disabled>
+            {projectsQuery.isLoading
+              ? "Cargando proyectos..."
+              : projects.length === 0
+                ? "Sin proyectos"
+                : "Selecciona un proyecto"}
+          </option>
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.title}
+              {project.status && project.status !== "active" ? ` (${project.status})` : ""}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted/60" />
+      </div>
+    </div>
+  );
 
   const projectHref = hasProject ? `/project/${activeProjectId}` : "/project/new";
   const formHref = hasProject ? `/project/${activeProjectId}/form` : "/project/new";
   const telemetryHref = hasProject ? `/project/${activeProjectId}/telemetry` : "/project/new";
-  const resultsHref = hasProject ? `/project/${activeProjectId}/results` : "/project/new";
-  const reportsHref = hasProject ? `/project/${activeProjectId}/reports` : "/project/new";
 
   const navGroups: NavGroup[] = [
     {
@@ -64,6 +114,7 @@ export function Sidebar() {
     },
     {
       title: "Proyecto Activo",
+      beforeItems: projectSelector,
       items: [
         {
           to: projectHref,
@@ -85,18 +136,6 @@ export function Sidebar() {
           label: "Telemetría",
           icon: BarChart3,
           active: (p) => p.includes("/telemetry") || p.includes("/link"),
-        },
-        {
-          to: resultsHref,
-          label: "Resultados",
-          icon: Sparkles,
-          active: (p) => p.includes("/results"),
-        },
-        {
-          to: reportsHref,
-          label: "Reportes",
-          icon: FileText,
-          active: (p) => p.includes("/reports"),
         },
       ],
     },
@@ -120,13 +159,30 @@ export function Sidebar() {
   ];
 
   return (
-    <aside className="hidden w-[240px] shrink-0 lg:block">
-      <div className="sticky top-0 flex h-screen flex-col bg-white border-r border-[#E6E8EB]">
+    <aside
+      className={cn(
+        "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out lg:block",
+        collapsed ? "lg:w-0" : "lg:w-[240px]"
+      )}
+    >
+      <div
+        className={cn(
+          "sticky top-0 flex h-screen w-[240px] flex-col bg-white border-r border-[#E6E8EB] transition-opacity duration-150",
+          collapsed && "pointer-events-none opacity-0"
+        )}
+      >
         {/* Header */}
         <div className="px-5 pt-5 pb-4">
-          <BrandLogo />
+          <div className="flex items-start justify-between gap-2">
+            <BrandLogo />
+            <ColmenaMenuButton
+              onClick={() => onToggle?.()}
+              title="Contraer menú"
+              className="mt-0.5 rounded-lg p-1.5 hover:bg-[#F5F6F8]"
+            />
+          </div>
           <p className="mt-1 pl-[50px] text-[11px] font-medium text-muted/70 tracking-wide">
-            Resultados inteligentes
+            Encuestas inteligentes
           </p>
         </div>
 
@@ -139,6 +195,7 @@ export function Sidebar() {
                   {group.title}
                 </p>
               )}
+              {group.beforeItems}
               <div className="space-y-0.5">
                 {group.items.map((item) => {
                   const isActive = item.active(location.pathname);

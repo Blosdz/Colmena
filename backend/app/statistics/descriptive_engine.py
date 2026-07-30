@@ -38,7 +38,9 @@ def safe_kurtosis(series: pd.Series, decimals: int = 3) -> float | None:
     return _round(float(kurtosis(cleaned, fisher=True, bias=False)), decimals)
 
 
-def percentile_summary(series: pd.Series, decimals: int = 3) -> tuple[float | None, float | None, float | None]:
+def percentile_summary(
+    series: pd.Series, decimals: int = 3
+) -> tuple[float | None, float | None, float | None]:
     cleaned = pd.to_numeric(series, errors="coerce").dropna()
     if cleaned.empty:
         return None, None, None
@@ -47,6 +49,25 @@ def percentile_summary(series: pd.Series, decimals: int = 3) -> tuple[float | No
         _round(float(cleaned.quantile(0.50)), decimals),
         _round(float(cleaned.quantile(0.75)), decimals),
     )
+
+
+def percentile_bands(
+    series: pd.Series,
+    percentiles: tuple[int, ...] = (10, 20, 25, 50, 75, 90),
+    decimals: int = 3,
+) -> dict[int, float | None]:
+    cleaned = pd.to_numeric(series, errors="coerce").dropna()
+    if cleaned.empty:
+        return {p: None for p in percentiles}
+    return {p: _round(float(cleaned.quantile(p / 100)), decimals) for p in percentiles}
+
+
+def safe_coefficient_variation(
+    mean: float | None, standard_deviation: float | None, decimals: int = 3
+) -> float | None:
+    if mean is None or standard_deviation is None or mean == 0:
+        return None
+    return _round(abs(standard_deviation / mean) * 100, decimals)
 
 
 def numeric_descriptive(series: pd.Series, decimals: int = 3) -> NumericDescriptiveRead:
@@ -69,29 +90,40 @@ def numeric_descriptive(series: pd.Series, decimals: int = 3) -> NumericDescript
             range=None,
             skewness=None,
             kurtosis=None,
+            coefficient_variation=None,
+            percentile_10=None,
+            percentile_20=None,
             percentile_25=None,
             percentile_50=None,
             percentile_75=None,
+            percentile_90=None,
         )
 
     minimum = float(valid.min())
     maximum = float(valid.max())
     percentile_25, percentile_50, percentile_75 = percentile_summary(valid, decimals)
+    bands = percentile_bands(valid, decimals=decimals)
+    mean = _round(float(valid.mean()), decimals)
+    standard_deviation = _round(float(valid.std(ddof=1)), decimals) if valid_n >= 2 else None
 
     return NumericDescriptiveRead(
         valid_n=valid_n,
         missing_n=missing_n,
-        mean=_round(float(valid.mean()), decimals),
+        mean=mean,
         median=_round(float(valid.median()), decimals),
         mode=safe_mode(valid, decimals),
-        standard_deviation=_round(float(valid.std(ddof=1)), decimals) if valid_n >= 2 else None,
+        standard_deviation=standard_deviation,
         variance=_round(float(valid.var(ddof=1)), decimals) if valid_n >= 2 else None,
         minimum=_round(minimum, decimals),
         maximum=_round(maximum, decimals),
         range=_round(maximum - minimum, decimals),
         skewness=safe_skewness(valid, decimals),
         kurtosis=safe_kurtosis(valid, decimals),
+        coefficient_variation=safe_coefficient_variation(mean, standard_deviation, decimals),
+        percentile_10=bands[10],
+        percentile_20=bands[20],
         percentile_25=percentile_25,
         percentile_50=percentile_50,
         percentile_75=percentile_75,
+        percentile_90=bands[90],
     )

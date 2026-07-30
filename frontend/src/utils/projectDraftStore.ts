@@ -3,12 +3,15 @@ import type { ParsedQuestion } from "./bulkQuestionParser";
 import type { BaremoLevel } from "./baremoCalculator";
 export type { BaremoLevel };
 import { calculateEqualRangeBaremos } from "./baremoCalculator";
+import type { CatalogScale } from "../components/forms/BulkQuestionTable";
 
 // ── Types ──────────────────────────────────────────────
 
 export type ScaleDraft = {
   name: string;
   options: { id: string; value: number; label: string }[];
+  /** id real en `scales` del backend si coincide con un preset del catálogo; null/undefined = personalizada/editada */
+  catalogScaleId?: string | null;
 };
 
 export type DimensionDraft = {
@@ -19,14 +22,47 @@ export type DimensionDraft = {
   baremos: BaremoLevel[];    // dimension-level baremos
 };
 
+// ── Study-variable metadata (maps to backend project_variables) ──
+export type VariableRole = "main" | "intervening";
+// Clasificación metodológica opcional, aplicable a cualquier rol.
+export type VariableClassification = "independent" | "dependent" | "segment" | null;
+export type MeasurementLevel = "nominal" | "ordinal" | "interval" | "ratio";
+export type VariableDataType = "numeric" | "categorical" | "text" | "boolean" | "date";
+// Cómo se mide la variable: con un cuestionario (ítems que se suman) o un dato directo (un solo valor).
+export type MeasurementMode = "instrument" | "direct";
+
 export type VariableDraft = {
   id: string;
   name: string;
+  code: string;                     // short code, e.g. AUTOEST
+  description: string;
+  variableRole: VariableRole;       // → variable_role
+  variableClassification: VariableClassification; // → variable_classification
+  measurementMode: MeasurementMode; // → measurement_mode (lo elige el usuario)
+  measurementLevel: MeasurementLevel; // → measurement_level (DERIVADO, no lo elige el usuario)
+  dataType: VariableDataType;       // → data_type (solo relevante en modo "direct")
+  isRequiredForAnalysis: boolean;   // → is_required_for_analysis
   dimensions: DimensionDraft[];
   items: ParsedQuestion[];
   scale: ScaleDraft;
   baremos: BaremoLevel[];           // variable-level baremos
 };
+
+export type VariableMeta = Pick<
+  VariableDraft,
+  "name" | "code" | "description" | "variableRole" | "variableClassification" | "measurementMode" | "measurementLevel" | "dataType" | "isRequiredForAnalysis"
+>;
+
+/**
+ * Deriva el nivel de medición: el usuario nunca lo elige, el sistema lo deduce.
+ * Debe reflejar exactamente `derive_measurement_level` del backend.
+ */
+export function deriveMeasurementLevel(mode: MeasurementMode, dataType: VariableDataType): MeasurementLevel {
+  if (mode === "instrument") return "ordinal";
+  if (dataType === "numeric") return "ratio";
+  if (dataType === "date") return "interval";
+  return "nominal"; // categorical, boolean, text
+}
 
 export type DataRow = Record<string, string | number>;
 
@@ -35,30 +71,40 @@ export type ProjectDraft = {
   author: string;
   description: string;
   variables: VariableDraft[];
+  participantFields: string[];       // preset ids de "Datos del participante" (nombre, sexo, edad…)
   dataRows: DataRow[];               // uploaded Excel data
   dataColumns: string[];             // column headers from Excel
 };
 
 // ── Defaults ───────────────────────────────────────────
 
-const DEFAULT_SCALE: ScaleDraft = {
-  name: "Likert 5 puntos",
-  options: [
-    { id: "1", value: 1, label: "Totalmente en desacuerdo" },
-    { id: "2", value: 2, label: "En desacuerdo" },
-    { id: "3", value: 3, label: "Ni de acuerdo ni en desacuerdo" },
-    { id: "4", value: 4, label: "De acuerdo" },
-    { id: "5", value: 5, label: "Totalmente de acuerdo" },
-  ],
-};
-
-export function createVariable(name: string): VariableDraft {
+/**
+ * Crea una variable nueva. La escala inicial viene del catálogo del backend, nunca hardcodeada:
+ * si se pasa `defaultScale` (resuelto por `resolveDefaultCatalogScale` con datos de `useScales`),
+ * la variable arranca ya con esa escala; si no, arranca sin opciones y el wizard la backfillea en
+ * cuanto el catálogo termine de cargar (ver el `useEffect` de backfill en ProjectCreateWizard.tsx).
+ */
+export function createVariable(name: string, defaultScale?: CatalogScale): VariableDraft {
   return {
     id: crypto.randomUUID(),
     name,
+    code: "",
+    description: "",
+    variableRole: "main",
+    variableClassification: "independent",
+    measurementMode: "instrument",
+    measurementLevel: "ordinal",
+    dataType: "numeric",
+    isRequiredForAnalysis: true,
     dimensions: [],
     items: [],
-    scale: { ...DEFAULT_SCALE, options: DEFAULT_SCALE.options.map(o => ({ ...o })) },
+    scale: defaultScale
+      ? {
+          name: defaultScale.name,
+          options: defaultScale.options.map((o, i) => ({ id: String(i + 1), value: o.value, label: o.label })),
+          catalogScaleId: defaultScale.id,
+        }
+      : { name: "", options: [] },
     baremos: [],
   };
 }
@@ -83,7 +129,8 @@ function createDefaultDraft(): ProjectDraft {
     title: "",
     author: "",
     description: "",
-    variables: [createVariable("Variable principal")],
+    variables: [createVariable("Variable 1")],
+    participantFields: [],
     dataRows: [],
     dataColumns: [],
   };
@@ -91,7 +138,7 @@ function createDefaultDraft(): ProjectDraft {
 
 let globalDraft: ProjectDraft = createDefaultDraft();
 let globalActiveVariableId = globalDraft.variables[0].id;
-let globalActiveTab: VariableTab = "dimensions";
+let globalActiveTab: VariableTab = "variable";
 let globalShowProjectInfo = false;
 
 const listeners = new Set<() => void>();
@@ -103,7 +150,7 @@ function notify() {
 function reset() {
   globalDraft = createDefaultDraft();
   globalActiveVariableId = globalDraft.variables[0].id;
-  globalActiveTab = "dimensions";
+  globalActiveTab = "variable";
   globalShowProjectInfo = false;
   notify();
 }
@@ -118,7 +165,7 @@ function hydrate(draftData: ProjectDraft) {
 
 // ── Hook ───────────────────────────────────────────────
 
-export type VariableTab = "dimensions" | "items" | "scale" | "baremos" | "data";
+export type VariableTab = "variable" | "dimensions" | "items" | "scale" | "baremos" | "data" | "participants";
 
 export function useProjectDraft() {
   const [, setTick] = useState(0);
@@ -138,18 +185,18 @@ export function useProjectDraft() {
     notify();
   }, []);
 
-  const addVariable = useCallback(() => {
-    const v = createVariable(`Variable ${globalDraft.variables.length + 1}`);
+  const addVariable = useCallback((defaultScale?: CatalogScale) => {
+    const v = createVariable(`Variable ${globalDraft.variables.length + 1}`, defaultScale);
     globalDraft = { ...globalDraft, variables: [...globalDraft.variables, v] };
     globalActiveVariableId = v.id;
-    globalActiveTab = "dimensions";
+    globalActiveTab = "variable";
     notify();
   }, []);
 
   const removeVariable = useCallback((id: string) => {
     const next = globalDraft.variables.filter(v => v.id !== id);
     if (next.length === 0) {
-      const fallback = createVariable("Variable principal");
+      const fallback = createVariable("Variable 1");
       globalDraft = { ...globalDraft, variables: [fallback] };
     } else {
       globalDraft = { ...globalDraft, variables: next };
@@ -167,6 +214,20 @@ export function useProjectDraft() {
     globalDraft = {
       ...globalDraft,
       variables: globalDraft.variables.map(v => v.id === id ? { ...v, name } : v),
+    };
+    notify();
+  }, []);
+
+  const updateVariableMeta = useCallback((id: string, updates: Partial<VariableMeta>) => {
+    globalDraft = {
+      ...globalDraft,
+      variables: globalDraft.variables.map(v => {
+        if (v.id !== id) return v;
+        const merged = { ...v, ...updates };
+        // El nivel de medición siempre se deriva; nunca lo fija el usuario directamente.
+        merged.measurementLevel = deriveMeasurementLevel(merged.measurementMode, merged.dataType);
+        return merged;
+      }),
     };
     notify();
   }, []);
@@ -226,6 +287,16 @@ export function useProjectDraft() {
     notify();
   }, []);
 
+  const removeItem = useCallback((varId: string, itemId: string) => {
+    globalDraft = {
+      ...globalDraft,
+      variables: globalDraft.variables.map(v =>
+        v.id === varId ? { ...v, items: v.items.filter(i => i.id !== itemId) } : v
+      ),
+    };
+    notify();
+  }, []);
+
   const updateScale = useCallback((varId: string, scale: ScaleDraft) => {
     globalDraft = {
       ...globalDraft,
@@ -278,6 +349,17 @@ export function useProjectDraft() {
     notify();
   }, []);
 
+  const toggleParticipantField = useCallback((presetId: string) => {
+    const current = globalDraft.participantFields;
+    globalDraft = {
+      ...globalDraft,
+      participantFields: current.includes(presetId)
+        ? current.filter(id => id !== presetId)
+        : [...current, presetId],
+    };
+    notify();
+  }, []);
+
   return {
     draft: globalDraft,
     activeVariable,
@@ -300,16 +382,19 @@ export function useProjectDraft() {
     addVariable,
     removeVariable,
     renameVariable,
+    updateVariableMeta,
     addDimension,
     removeDimension,
     updateDimension,
     addItems,
     updateItem,
+    removeItem,
     updateScale,
     updateBaremos,
     updateDimensionBaremos,
     autoGenerateAllBaremos,
     setData,
+    toggleParticipantField,
     reset,
     hydrate,
     totalDimensions: globalDraft.variables.reduce((sum, v) => sum + v.dimensions.length, 0),
