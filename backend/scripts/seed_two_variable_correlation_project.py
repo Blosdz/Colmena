@@ -51,6 +51,8 @@ from app.models.form_response import FormResponse
 from app.models.project import Project
 from app.models.project_variable import ProjectVariable
 from app.models.scale import Scale
+from app.models.score_band import ScoreBand
+from app.models.scoring_config import ScoringConfig
 from app.models.type_research import TypeResearch
 from app.models.user import User
 
@@ -131,6 +133,29 @@ VARIABLES = [
         ],
     },
 ]
+
+
+BAREMO_LEVEL_NAMES = ["Bajo", "Medio", "Alto"]
+BAREMO_LEVEL_COLORS = ["#DC2626", "#F5B21A", "#059669"]  # mirrors export_renderer.py's SEMAFORO_COLORS
+
+
+def equal_range_bands(score_min: float, score_max: float) -> list[dict]:
+    """Splits [score_min, score_max] into 3 equal-width Bajo/Medio/Alto bands —
+    same 'equal_range' method AdvancedScoringService.resolve_variable_baremos
+    uses by default, so these bands line up with what /scoring/baremos/resolution
+    would have generated had the config gone through the wizard."""
+    step = (score_max - score_min) / len(BAREMO_LEVEL_NAMES)
+    bounds = [score_min + step * i for i in range(len(BAREMO_LEVEL_NAMES) + 1)]
+    return [
+        {
+            "label": BAREMO_LEVEL_NAMES[i],
+            "min_value": bounds[i],
+            "max_value": bounds[i + 1],
+            "severity_order": i + 1,
+            "color_hint": BAREMO_LEVEL_COLORS[i],
+        }
+        for i in range(len(BAREMO_LEVEL_NAMES))
+    ]
 
 
 def parse_args() -> argparse.Namespace:
@@ -265,6 +290,23 @@ def main() -> None:
                 db.add(form_dimension)
                 db.flush()
 
+                dimension_item_count = len(dimension["items"])
+                dimension_config = ScoringConfig(
+                    project_id=project.id,
+                    form_id=form.id,
+                    dimension_id=form_dimension.id,
+                    name=f"Baremos - {dimension['name']}",
+                    scoring_level="dimension",
+                    aggregation_method="sum",
+                    missing_policy="allow_partial",
+                    score_min=float(dimension_item_count * 1),
+                    score_max=float(dimension_item_count * 5),
+                )
+                db.add(dimension_config)
+                db.flush()
+                for band in equal_range_bands(dimension_config.score_min, dimension_config.score_max):
+                    db.add(ScoreBand(scoring_config_id=dimension_config.id, **band))
+
                 for item_index, label in enumerate(dimension["items"]):
                     question = FormQuestion(
                         form_id=form.id,
@@ -301,6 +343,23 @@ def main() -> None:
                         )
 
                     question_lookup[f"{dimension['code']}::{item_index}"] = question
+
+            instrument_item_count = sum(len(dimension["items"]) for dimension in variable["dimensions"])
+            instrument_config = ScoringConfig(
+                project_id=project.id,
+                form_id=form.id,
+                instrument_id=instrument.id,
+                name=f"Baremos Generales - {variable['name']}",
+                scoring_level="instrument",
+                aggregation_method="sum",
+                missing_policy="allow_partial",
+                score_min=float(instrument_item_count * 1),
+                score_max=float(instrument_item_count * 5),
+            )
+            db.add(instrument_config)
+            db.flush()
+            for band in equal_range_bands(instrument_config.score_min, instrument_config.score_max):
+                db.add(ScoreBand(scoring_config_id=instrument_config.id, **band))
 
         db.commit()
 

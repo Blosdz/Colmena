@@ -168,6 +168,14 @@ def compute_linear_trend(x_values: list[float], y_values: list[float]) -> tuple[
     return slope, intercept
 
 
+CORRELATION_METHOD_SYMBOLS = {
+    "pearson": "r",
+    "spearman": "Rho",
+    "kendall": "Tau",
+    "point_biserial": "r_pb",
+}
+
+
 def render_correlation_scatter_chart(
     *,
     x_label: str,
@@ -175,11 +183,17 @@ def render_correlation_scatter_chart(
     x_values: list[float],
     y_values: list[float],
     output_path: Path,
+    method_used: str | None = None,
+    coefficient: float | None = None,
+    p_value: float | None = None,
+    alpha: float = 0.05,
     figure_number: int | str | None = None,
 ) -> Path:
     """Scatter of paired (x, y) cases plus a least-squares trend line. Point
     count must equal N — that's the integrity check the thesis student runs
-    against the reported n."""
+    against the reported n. When the coefficient is known, a boxed
+    Rho/r + p-value + R² annotation is drawn top-left, matching the
+    on-screen chart and the typical thesis figure style."""
     configure_thesis_style()
 
     fig, ax = plt.subplots(figsize=(6.0, 4.5), dpi=DPI)
@@ -199,6 +213,24 @@ def render_correlation_scatter_chart(
 
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
+
+    if coefficient is not None:
+        symbol = CORRELATION_METHOD_SYMBOLS.get(method_used or "", method_used or "r")
+        p_text = "-"
+        if p_value is not None:
+            p_text = f"< {alpha}" if p_value < alpha else f"{p_value:.3f}"
+        stats_text = f"{symbol} = {coefficient:.2f}\np-value {p_text}\n" + r"R$^2$" + f" = {coefficient ** 2:.2f}"
+        ax.text(
+            0.03,
+            0.97,
+            stats_text,
+            transform=ax.transAxes,
+            fontsize=11,
+            va="top",
+            ha="left",
+            linespacing=1.6,
+            bbox={"boxstyle": "square,pad=0.5", "facecolor": "#FFFFFF", "edgecolor": "#000000", "linewidth": 1.0},
+        )
 
     title_prefix = f"Figura {figure_number}. " if figure_number is not None else ""
     _set_wrapped_title(ax, f"{title_prefix}Dispersión: {x_label} vs. {y_label} (n = {len(x_values)})")

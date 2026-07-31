@@ -41,10 +41,23 @@ def render_correlation_scatter_export(
     x_id: str = Query(),
     y_type: str = Query(pattern="^(question|dimension|instrument|project_variable)$"),
     y_id: str = Query(),
+    method: str = Query(default="auto", pattern="^(auto|pearson|spearman|kendall)$"),
     service: ChartExportService = Depends(get_chart_export_service),
 ) -> FileResponse:
-    png_path = service.render_correlation_scatter_png(form_id, x_type=x_type, x_id=x_id, y_type=y_type, y_id=y_id)
+    png_path = service.render_correlation_scatter_png(
+        form_id, x_type=x_type, x_id=x_id, y_type=y_type, y_id=y_id, method=method
+    )
     return FileResponse(png_path, media_type="image/png")
+
+
+@router.get("/api/v1/forms/{form_id}/chart-exports/report-bundle.zip")
+def render_report_bundle_export(
+    form_id: str,
+    method: str = Query(default="auto", pattern="^(auto|pearson|spearman|kendall)$"),
+    service: ChartExportService = Depends(get_chart_export_service),
+) -> FileResponse:
+    zip_path = service.render_report_bundle_zip(form_id, method=method)
+    return FileResponse(zip_path, media_type="application/zip", filename="reportes-graficas.zip")
 
 
 @router.get("/api/v1/forms/{form_id}/chart-exports/dimension-bars/{instrument_id}.png")

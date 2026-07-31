@@ -133,3 +133,92 @@ export function getNormalityHistogram(formId: string, targetType: string, target
     `/api/v1/forms/${formId}/normality/histogram?target_type=${targetType}&target_id=${targetId}`,
   );
 }
+
+// ---------- Correlaciones (Spearman / Pearson / Kendall) ----------
+
+export type CorrelationMethod = "auto" | "pearson" | "spearman" | "kendall";
+
+export interface CorrelationMatrixTarget {
+  target_type: string;
+  target_id: string;
+  label: string;
+}
+
+export interface CorrelationMatrixCell {
+  row_target_id: string;
+  column_target_id: string;
+  row_label: string;
+  column_label: string;
+  method_used: string;
+  valid_n: number;
+  coefficient: number | null;
+  p_value: number | null;
+  magnitude: string;
+  significance: string;
+  warnings: string[];
+}
+
+export interface CorrelationMatrixReport {
+  form_id: string;
+  project_id: string;
+  method_requested: string;
+  alpha: number;
+  targets: CorrelationMatrixTarget[];
+  cells: CorrelationMatrixCell[];
+  warnings: string[];
+  analysis_run_id: string | null;
+}
+
+export function getCorrelationsByVariable(formId: string, method: CorrelationMethod = "auto") {
+  return apiClient.get<CorrelationMatrixReport>(
+    `/api/v1/forms/${formId}/correlations/project-variables?method=${method}`,
+  );
+}
+
+export interface CorrelationTargetInput {
+  target_type: string;
+  target_id: string;
+  label?: string;
+}
+
+export interface CorrelationPairResult {
+  method_used: string;
+  alpha: number;
+  x_target: CorrelationMatrixTarget;
+  y_target: CorrelationMatrixTarget;
+  valid_n: number;
+  coefficient: number | null;
+  p_value: number | null;
+  magnitude: string;
+  significance: string;
+  x_values: number[] | null;
+  y_values: number[] | null;
+}
+
+export interface CorrelationPairRun {
+  analysis_run_id: string | null;
+  result: CorrelationPairResult;
+}
+
+export function runPairCorrelation(
+  formId: string,
+  payload: {
+    x: CorrelationTargetInput;
+    y: CorrelationTargetInput;
+    method?: CorrelationMethod;
+    alpha?: number;
+  },
+) {
+  return apiClient.post<CorrelationPairRun>(`/api/v1/forms/${formId}/correlations/pair`, {
+    method: "auto",
+    alpha: 0.05,
+    store_result: false,
+    ...payload,
+  });
+}
+
+// ---------- Exportar gráficas (PNG generados con Python/matplotlib) ----------
+
+export function exportReportChartsZip(formId: string, method: CorrelationMethod = "auto") {
+  return apiClient.getBlob(`/api/v1/forms/${formId}/chart-exports/report-bundle.zip`, { method });
+}

@@ -8,6 +8,8 @@ matplotlib only draws — no statistic is recomputed here.
 
 from __future__ import annotations
 
+import re
+import zipfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -94,13 +96,14 @@ class ChartExportService:
         x_id: str,
         y_type: str,
         y_id: str,
+        method: str = "auto",
     ) -> Path:
         run = self.correlation_service.run_pair_correlation(
             form_id,
             CorrelationRequest(
                 x=CorrelationTargetInput(target_type=x_type, target_id=x_id),
                 y=CorrelationTargetInput(target_type=y_type, target_id=y_id),
-                method="auto",
+                method=method,
                 store_result=False,
             ),
         )
@@ -115,6 +118,10 @@ class ChartExportService:
             y_label=result.y_target.label,
             x_values=result.x_values,
             y_values=result.y_values,
+            method_used=result.method_used,
+            coefficient=result.coefficient,
+            p_value=result.p_value,
+            alpha=result.alpha,
             output_path=self._output_path(f"correlation-scatter-{x_id}-{y_id}"),
         )
 
@@ -180,3 +187,76 @@ class ChartExportService:
             rows=deduped_rows,
             output_path=self._output_path(f"dimension-bars-{instrument_id}-{y_id}"),
         )
+
+    @staticmethod
+    def _slugify(label: str) -> str:
+        ascii_label = label.encode("ascii", "ignore").decode("ascii") or label
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_label).strip("-").lower()
+        return slug or "grafico"
+
+    def render_report_bundle_zip(self, form_id: str, *, method: str = "auto") -> Path:
+        """Bundles every chart PNG shown on the Reportes page — normality
+        histograms (variables + dimensiones) and correlation scatters
+        (unique pairs of project variables) — into a single ZIP, using the
+        same method the on-screen page has selected."""
+        entries: list[tuple[str, Path]] = []
+        figure_number = 1
+
+        normality_results = [
+            *self.normality_service.get_project_variable_normality_results(form_id),
+            *self.normality_service.get_dimension_normality_results(form_id),
+        ]
+        for result in normality_results:
+            if result.valid_n < 5:
+                continue
+            try:
+                png_path = self.render_normality_histogram_png(
+                    form_id,
+                    target_type=result.target_type,
+                    target_id=result.target_id,
+                )
+            except HTTPException:
+                continue
+            entries.append((f"{figure_number:02d}-normalidad-{self._slugify(result.target_name)}.png", png_path))
+            figure_number += 1
+
+        matrix = self.correlation_service.get_project_variables_matrix(
+            form_id,
+            method=method,
+            alpha=0.05,
+            decimals=3,
+            include_discarded=False,
+            score_aggregation="sum",
+        )
+        target_order = {target.target_id: index for index, target in enumerate(matrix.targets)}
+        for cell in matrix.cells:
+            row_index = target_order.get(cell.row_target_id, -1)
+            column_index = target_order.get(cell.column_target_id, -1)
+            if row_index < 0 or column_index < 0 or row_index >= column_index:
+                continue
+            try:
+                png_path = self.render_correlation_scatter_png(
+                    form_id,
+                    x_type="project_variable",
+                    x_id=cell.row_target_id,
+                    y_type="project_variable",
+                    y_id=cell.column_target_id,
+                    method=method,
+                )
+            except HTTPException:
+                continue
+            pair_slug = f"{self._slugify(cell.row_label)}-vs-{self._slugify(cell.column_label)}"
+            entries.append((f"{figure_number:02d}-correlacion-{pair_slug}.png", png_path))
+            figure_number += 1
+
+        if not entries:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="No hay graficas disponibles para exportar todavia. Verifica que existan variables con puntaje calculado.",
+            )
+
+        zip_path = self.renders_dir / f"reportes-graficas-{uuid4().hex[:8]}.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for arcname, png_path in entries:
+                archive.write(png_path, arcname=arcname)
+        return zip_path

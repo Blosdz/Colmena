@@ -80,9 +80,34 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return payload as T;
 }
 
+async function requestBlob(path: string, query?: RequestOptions["query"]): Promise<Blob> {
+  const token = getStoredToken();
+  const response = await fetch(buildUrl(path, query), {
+    method: "GET",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") || "";
+    let message = `Error HTTP ${response.status}`;
+    if (contentType.includes("application/json")) {
+      const payload = await response.json();
+      if (payload && typeof payload === "object" && "detail" in payload) {
+        message = formatErrorDetail((payload as { detail: unknown }).detail);
+      }
+    }
+    throw new ApiError(message, response.status);
+  }
+
+  return response.blob();
+}
+
 export const apiClient = {
   get: <T>(path: string, query?: RequestOptions["query"]) =>
     request<T>(path, { method: "GET", query }),
+  getBlob: (path: string, query?: RequestOptions["query"]) => requestBlob(path, query),
   post: <T>(path: string, body?: unknown, query?: RequestOptions["query"]) =>
     request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined, query }),
   put: <T>(path: string, body?: unknown) =>
