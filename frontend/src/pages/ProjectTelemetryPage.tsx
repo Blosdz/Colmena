@@ -9,7 +9,9 @@ import { listProjectForms } from "../api/forms";
 import { getProject } from "../api/projects";
 import { PageHeader } from "../components/layout/PageHeader";
 import { useActiveStudy } from "../components/study/useActiveStudy";
+import { ResponsesDatabaseView } from "../components/telemetry/ResponsesDatabaseView";
 import { TelemetryChartsGrid } from "../components/telemetry/TelemetryChartsGrid";
+import { ALL_QUESTIONS_KEY, TelemetryGroupSelector } from "../components/telemetry/TelemetryGroupSelector";
 import { useTelemetrySocket } from "../components/telemetry/useTelemetrySocket";
 import { LoadingState } from "../components/ui/LoadingState";
 import { formatDate } from "../utils/formatters";
@@ -73,6 +75,7 @@ export function ProjectTelemetryPage() {
   useActiveStudy(projectId);
 
   const [live, setLive] = useState(true);
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const projectQuery = useQuery({
@@ -180,7 +183,32 @@ export function ProjectTelemetryPage() {
 
   const overview = overviewQuery.data;
   const questions = descriptivesQuery.data?.questions ?? [];
+  const dimensions = descriptivesQuery.data?.dimensions ?? [];
+  const instruments = descriptivesQuery.data?.instruments ?? [];
+  const projectVariables = descriptivesQuery.data?.project_variables ?? [];
   const totalResponses = overview?.total_responses ?? 0;
+
+  const defaultGroup = dimensions[0]
+    ? `dimension:${dimensions[0].dimension_id}`
+    : projectVariables[0]
+      ? `variable:${projectVariables[0].variable_id}`
+      : ALL_QUESTIONS_KEY;
+  const effectiveGroup = selectedGroup ?? defaultGroup;
+  const [groupKind, groupId] = effectiveGroup.split(":");
+  const filterKind: "all" | "dimension" | "variable" =
+    groupKind === "dimension" ? "dimension" : groupKind === "variable" ? "variable" : "all";
+  const filteredQuestions =
+    filterKind === "dimension"
+      ? questions.filter((question) => question.dimension_id === groupId)
+      : filterKind === "variable"
+        ? questions.filter((question) => question.project_variable_id === groupId)
+        : questions;
+  const filterName =
+    filterKind === "dimension"
+      ? (dimensions.find((dimension) => dimension.dimension_id === groupId)?.name ?? null)
+      : filterKind === "variable"
+        ? (projectVariables.find((variable) => variable.variable_id === groupId)?.name ?? null)
+        : null;
 
   const lastUpdatedAt = descriptivesQuery.dataUpdatedAt;
   const isFetching = descriptivesQuery.isFetching || overviewQuery.isFetching;
@@ -208,7 +236,14 @@ export function ProjectTelemetryPage() {
         }
       />
 
-      <div className="flex justify-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <TelemetryGroupSelector
+          dimensions={dimensions}
+          instruments={instruments}
+          projectVariables={projectVariables}
+          value={effectiveGroup}
+          onChange={setSelectedGroup}
+        />
         <LiveIndicator
           live={live}
           realtime={wsConnected}
@@ -219,7 +254,18 @@ export function ProjectTelemetryPage() {
         />
       </div>
 
-      <TelemetryChartsGrid questions={questions} />
+      <TelemetryChartsGrid questions={filteredQuestions} />
+
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-dark">Base de datos de respuestas</h2>
+          <p className="text-sm text-muted">
+            Cada fila es una respuesta; las columnas se agrupan por dimensión
+            {filterName ? ` · filtrado por "${filterName}"` : ""}.
+          </p>
+        </div>
+        <ResponsesDatabaseView formId={primaryForm.id} filterKind={filterKind} filterName={filterName} />
+      </div>
     </div>
   );
 }

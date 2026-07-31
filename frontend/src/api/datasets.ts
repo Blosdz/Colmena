@@ -20,6 +20,13 @@ export function getDatasetPreview(formId: string) {
   return apiClient.get<DatasetPreview>(`/api/v1/forms/${formId}/dataset/preview`);
 }
 
+// Dataset con valores legibles para la vista de "base de datos" de Telemetría.
+export function getResponsesDataset(formId: string) {
+  return apiClient.get<DatasetPreview>(
+    `/api/v1/forms/${formId}/dataset?mode=label&include_metadata=true&include_discarded=false&limit=1000`,
+  );
+}
+
 export function getCompleteness(formId: string) {
   return apiClient.get<CompletenessSummary>(`/api/v1/forms/${formId}/completeness`);
 }

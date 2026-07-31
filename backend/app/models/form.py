@@ -37,3 +37,4 @@ class Form(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     response_scores: Mapped[list["ResponseScore"]] = relationship(back_populates="form")
     response_control_flags: Mapped[list["ResponseControlFlag"]] = relationship(back_populates="form")
     chart_editor_states: Mapped[list["ChartEditorState"]] = relationship(back_populates="form")
+    baremo_table_states: Mapped[list["BaremoTableState"]] = relationship(back_populates="form")

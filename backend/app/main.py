@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.realtime import broker
 from app.routers.analysis_orchestrator import router as analysis_orchestrator_router
+from app.routers.baremo_table_states import router as baremo_table_states_router
 from app.routers.catalogs import router as catalogs_router
 from app.routers.chart_editor_states import router as chart_editor_states_router
 from app.routers.apa_tables import router as apa_tables_router
@@ -94,6 +95,7 @@ app.include_router(statistical_decisions_router)
 app.include_router(scoring_router)
 app.include_router(word_reports_router)
 app.include_router(chart_editor_states_router)
+app.include_router(baremo_table_states_router)
 app.include_router(telemetry_ws_router)
 
 

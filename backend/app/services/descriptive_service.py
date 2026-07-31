@@ -250,6 +250,9 @@ class DescriptiveService:
             frequencies=frequencies,
             numeric=numeric,
             warnings=warnings,
+            dimension_id=question.dimension_id,
+            instrument_id=question.instrument_id,
+            project_variable_id=question.project_variable_id,
         )
 
     def _build_question_descriptives(

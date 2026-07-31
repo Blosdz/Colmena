@@ -1,5 +1,6 @@
 from app.models.analysis_run import AnalysisRun
 from app.models.approach import Approach
+from app.models.baremo_table_state import BaremoTableState
 from app.models.chart_editor_state import ChartEditorState
 from app.models.base import Base
 from app.models.design_type import DesignType
@@ -29,6 +30,7 @@ __all__ = [
     "Base",
     "AnalysisRun",
     "Approach",
+    "BaremoTableState",
     "ChartEditorState",
     "DesignType",
     "ExportArtifact",

@@ -10,6 +10,8 @@ import { ProjectCreateWizard } from "../pages/ProjectCreateWizard";
 import { ProjectLinkResponsesPage } from "../pages/ProjectLinkResponsesPage";
 import { ProjectFormDesigner } from "../pages/ProjectFormDesigner";
 import { ProjectTelemetryPage } from "../pages/ProjectTelemetryPage";
+import { ProjectResultsPage } from "../pages/ProjectResultsPage";
+import { ProjectReportsPage } from "../pages/ProjectReportsPage";
 import { PublicFormPage } from "../pages/PublicFormPage";
 import { LoginPage } from "../pages/LoginPage";
 import { AuthCallbackPage } from "../pages/AuthCallbackPage";
@@ -50,6 +52,8 @@ export const router = createBrowserRouter([
       { path: "project/:projectId/form", element: <ProjectFormDesigner /> },
       { path: "project/:projectId/link", element: <ProjectLinkResponsesPage /> },
       { path: "project/:projectId/telemetry", element: <ProjectTelemetryPage /> },
+      { path: "project/:projectId/results", element: <ProjectResultsPage /> },
+      { path: "project/:projectId/reports", element: <ProjectReportsPage /> },
       { path: "study/new", element: <Navigate replace to="/project/new" /> },
       { path: "study/:projectId/workspace", element: <StudyToProjectRedirect mode="workspace" /> },
       { path: "study/:projectId/builder", element: <StudyToProjectRedirect mode="builder" /> },

@@ -2,6 +2,8 @@ import {
   Archive,
   BarChart3,
   ChevronDown,
+  ClipboardList,
+  FileBarChart2,
   FolderKanban,
   Home,
   ListChecks,
@@ -94,6 +96,8 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const projectHref = hasProject ? `/project/${activeProjectId}` : "/project/new";
   const formHref = hasProject ? `/project/${activeProjectId}/form` : "/project/new";
   const telemetryHref = hasProject ? `/project/${activeProjectId}/telemetry` : "/project/new";
+  const resultsHref = hasProject ? `/project/${activeProjectId}/results` : "/project/new";
+  const reportsHref = hasProject ? `/project/${activeProjectId}/reports` : "/project/new";
 
   const navGroups: NavGroup[] = [
     {
@@ -136,6 +140,18 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           label: "Telemetría",
           icon: BarChart3,
           active: (p) => p.includes("/telemetry") || p.includes("/link"),
+        },
+        {
+          to: resultsHref,
+          label: "Resultados",
+          icon: ClipboardList,
+          active: (p) => p.includes("/results"),
+        },
+        {
+          to: reportsHref,
+          label: "Reportes",
+          icon: FileBarChart2,
+          active: (p) => p.includes("/reports"),
         },
       ],
     },

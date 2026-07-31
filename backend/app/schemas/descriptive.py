@@ -49,6 +49,9 @@ class QuestionDescriptiveRead(BaseModel):
     frequencies: list[FrequencyRowRead]
     numeric: NumericDescriptiveRead | None
     warnings: list[str]
+    dimension_id: str | None = None
+    instrument_id: str | None = None
+    project_variable_id: str | None = None
 
 
 class DimensionDescriptiveRead(BaseModel):

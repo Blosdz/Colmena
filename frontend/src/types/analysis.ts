@@ -39,6 +39,9 @@ export interface QuestionDescriptive {
   frequencies: FrequencyRow[];
   numeric?: NumericSummary | null;
   warnings: string[];
+  dimension_id?: string | null;
+  instrument_id?: string | null;
+  project_variable_id?: string | null;
 }
 
 export interface DescriptiveOverview {

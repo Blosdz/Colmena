@@ -432,9 +432,9 @@ export function ProjectCreateWizard() {
         // Update Project
         setSavingStatus("Actualizando información del proyecto...");
         await apiClient.patch(`/api/v1/projects/${projectId}`, {
-          title: draft.title,
-          advisor_name: draft.author,
-          notes: draft.description
+          title: draft.title || "Proyecto sin título",
+          advisor_name: draft.author || "",
+          notes: draft.description || ""
         });
       }
 
