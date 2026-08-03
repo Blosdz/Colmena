@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, FileBarChart2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
@@ -8,7 +8,6 @@ import { getProject } from "../api/projects";
 import {
   exportReportChartsZip,
   getCorrelationsByVariable,
-  getNormalityByDimension,
   getNormalityByVariable,
   getReliabilityByDimension,
   getReliabilityByInstrument,
@@ -189,17 +188,13 @@ function NormalitySection({
   method,
   onMethodChange,
   variableReport,
-  dimensionReport,
 }: {
   formId: string;
   method: NormalityMethod;
   onMethodChange: (method: NormalityMethod) => void;
   variableReport: NormalityReport;
-  dimensionReport: NormalityReport;
 }) {
-  const chartableResults = [...variableReport.results, ...dimensionReport.results].filter(
-    (result) => result.valid_n >= 5,
-  );
+  const chartableResults = variableReport.results.filter((result) => result.valid_n >= 5);
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-2">
@@ -236,7 +231,6 @@ function NormalitySection({
             </thead>
             <tbody className="divide-y divide-border">
               <NormalityRows label="Variables" results={variableReport.results} />
-              <NormalityRows label="Dimensiones" results={dimensionReport.results} />
             </tbody>
           </table>
         </div>
@@ -304,6 +298,105 @@ function uniqueCorrelationPairs(report: CorrelationMatrixReport): CorrelationMat
   });
 }
 
+function CorrelationPairExplorer({
+  formId,
+  method,
+  report,
+}: {
+  formId: string;
+  method: CorrelationMethod;
+  report: CorrelationMatrixReport;
+}) {
+  const targets = report.targets;
+  const [xTargetId, setXTargetId] = useState(targets[0]?.target_id ?? "");
+  const [yTargetId, setYTargetId] = useState(targets[1]?.target_id ?? "");
+
+  const xLabel = targets.find((target) => target.target_id === xTargetId)?.label ?? "";
+  const yLabel = targets.find((target) => target.target_id === yTargetId)?.label ?? "";
+  const samePair = Boolean(xTargetId) && xTargetId === yTargetId;
+
+  const pairQuery = useQuery({
+    queryKey: ["project-reports-correlation-explorer", formId, xTargetId, yTargetId, method],
+    queryFn: () =>
+      runPairCorrelation(formId, {
+        x: { target_type: "project_variable", target_id: xTargetId },
+        y: { target_type: "project_variable", target_id: yTargetId },
+        method,
+      }),
+    enabled: Boolean(formId && xTargetId && yTargetId) && !samePair,
+  });
+
+  const pairResult = pairQuery.data?.result;
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-[18px] border border-border bg-white p-4 shadow-card">
+        <h3 className="mb-3 text-sm font-semibold text-dark">Explorar un par de variables</h3>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
+              Variable X
+            </label>
+            <Select
+              aria-label="Variable X"
+              className="!h-9 !text-sm"
+              value={xTargetId}
+              onChange={(event) => setXTargetId(event.target.value)}
+            >
+              {targets.map((target) => (
+                <SelectOption key={target.target_id} value={target.target_id}>
+                  {target.label}
+                </SelectOption>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
+              Variable Y
+            </label>
+            <Select
+              aria-label="Variable Y"
+              className="!h-9 !text-sm"
+              value={yTargetId}
+              onChange={(event) => setYTargetId(event.target.value)}
+            >
+              {targets.map((target) => (
+                <SelectOption key={target.target_id} value={target.target_id}>
+                  {target.label}
+                </SelectOption>
+              ))}
+            </Select>
+          </div>
+        </div>
+      </div>
+      {samePair ? (
+        <div className="rounded-[18px] border border-border bg-white px-4 py-8 text-center text-sm text-muted shadow-card">
+          Elige dos variables distintas para calcular la correlación.
+        </div>
+      ) : pairQuery.isLoading ? (
+        <div className="rounded-[18px] border border-border bg-white px-4 py-8 text-center text-sm text-muted shadow-card">
+          Calculando correlación...
+        </div>
+      ) : pairResult && pairResult.x_values && pairResult.y_values ? (
+        <CorrelationScatterChart
+          xLabel={xLabel}
+          yLabel={yLabel}
+          xValues={pairResult.x_values}
+          yValues={pairResult.y_values}
+          coefficient={pairResult.coefficient}
+          pValue={pairResult.p_value}
+          method={pairResult.method_used}
+          alpha={report.alpha}
+        />
+      ) : (
+        <div className="rounded-[18px] border border-border bg-white px-4 py-8 text-center text-sm text-muted shadow-card">
+          Sin datos suficientes para graficar este par.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CorrelationSection({
   formId,
   method,
@@ -320,25 +413,6 @@ function CorrelationSection({
   isError: boolean;
 }) {
   const pairs = report ? uniqueCorrelationPairs(report) : [];
-
-  const scatterQueries = useQueries({
-    queries: pairs.map((cell) => ({
-      queryKey: [
-        "project-reports-correlation-pair",
-        formId,
-        cell.row_target_id,
-        cell.column_target_id,
-        method,
-      ],
-      queryFn: () =>
-        runPairCorrelation(formId, {
-          x: { target_type: "project_variable", target_id: cell.row_target_id },
-          y: { target_type: "project_variable", target_id: cell.column_target_id },
-          method,
-        }),
-      enabled: Boolean(formId) && pairs.length > 0,
-    })),
-  });
 
   return (
     <section className="space-y-3">
@@ -363,6 +437,9 @@ function CorrelationSection({
           <SelectOption value="kendall">Kendall (τ)</SelectOption>
         </Select>
       </div>
+      {report && report.targets.length > 1 ? (
+        <CorrelationPairExplorer formId={formId} method={method} report={report} />
+      ) : null}
       {isLoading ? (
         <div className="rounded-[18px] border border-border bg-white px-4 py-8 text-center text-sm text-muted shadow-card">
           Calculando correlaciones...
@@ -422,27 +499,6 @@ function CorrelationSection({
           </div>
         </div>
       )}
-      {report && pairs.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {pairs.map((cell, index) => {
-            const pairResult = scatterQueries[index]?.data?.result;
-            if (!pairResult || !pairResult.x_values || !pairResult.y_values) return null;
-            return (
-              <CorrelationScatterChart
-                key={`${cell.row_target_id}-${cell.column_target_id}`}
-                xLabel={cell.row_label}
-                yLabel={cell.column_label}
-                xValues={pairResult.x_values}
-                yValues={pairResult.y_values}
-                coefficient={pairResult.coefficient}
-                pValue={pairResult.p_value}
-                method={pairResult.method_used}
-                alpha={report.alpha}
-              />
-            );
-          })}
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -483,11 +539,6 @@ export function ProjectReportsPage() {
   const normalityVariablesQuery = useQuery({
     queryKey: ["project-reports-normality-variables", formId, normalityMethod],
     queryFn: () => getNormalityByVariable(formId, normalityMethod),
-    enabled: Boolean(formId),
-  });
-  const normalityDimensionsQuery = useQuery({
-    queryKey: ["project-reports-normality-dimensions", formId, normalityMethod],
-    queryFn: () => getNormalityByDimension(formId, normalityMethod),
     enabled: Boolean(formId),
   });
   const correlationVariablesQuery = useQuery({
@@ -542,8 +593,7 @@ export function ProjectReportsPage() {
   const reportsLoading =
     reliabilityVariablesQuery.isLoading ||
     reliabilityDimensionsQuery.isLoading ||
-    normalityVariablesQuery.isLoading ||
-    normalityDimensionsQuery.isLoading;
+    normalityVariablesQuery.isLoading;
   if (reportsLoading) {
     return <LoadingState label="Calculando estadísticos..." />;
   }
@@ -551,14 +601,12 @@ export function ProjectReportsPage() {
   const reportsError =
     reliabilityVariablesQuery.isError ||
     reliabilityDimensionsQuery.isError ||
-    normalityVariablesQuery.isError ||
-    normalityDimensionsQuery.isError;
+    normalityVariablesQuery.isError;
   if (
     reportsError ||
     !reliabilityVariablesQuery.data ||
     !reliabilityDimensionsQuery.data ||
-    !normalityVariablesQuery.data ||
-    !normalityDimensionsQuery.data
+    !normalityVariablesQuery.data
   ) {
     return (
       <div className="space-y-6">
@@ -604,7 +652,6 @@ export function ProjectReportsPage() {
         method={normalityMethod}
         onMethodChange={setNormalityMethod}
         variableReport={normalityVariablesQuery.data}
-        dimensionReport={normalityDimensionsQuery.data}
       />
       <CorrelationSection
         formId={formId}

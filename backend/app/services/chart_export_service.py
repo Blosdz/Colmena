@@ -196,16 +196,13 @@ class ChartExportService:
 
     def render_report_bundle_zip(self, form_id: str, *, method: str = "auto") -> Path:
         """Bundles every chart PNG shown on the Reportes page — normality
-        histograms (variables + dimensiones) and correlation scatters
-        (unique pairs of project variables) — into a single ZIP, using the
-        same method the on-screen page has selected."""
+        histograms (variables) and correlation scatters (unique pairs of
+        project variables) — into a single ZIP, using the same method the
+        on-screen page has selected."""
         entries: list[tuple[str, Path]] = []
         figure_number = 1
 
-        normality_results = [
-            *self.normality_service.get_project_variable_normality_results(form_id),
-            *self.normality_service.get_dimension_normality_results(form_id),
-        ]
+        normality_results = self.normality_service.get_project_variable_normality_results(form_id)
         for result in normality_results:
             if result.valid_n < 5:
                 continue
