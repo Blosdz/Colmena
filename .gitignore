@@ -26,3 +26,6 @@ backend/data/uploads/
 .pytest_cache/
 .runlogs/
 _runlogs/
+
+# Workspace de subagent-driven-development (scratch, no se commitea)
+.superpowers/
