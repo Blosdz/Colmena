@@ -20,25 +20,32 @@ def derive_measurement_level(measurement_mode: str, data_type: str) -> str:
     return "nominal"
 
 
-VALID_VARIABLE_ROLES = {"main", "intervening"}
+VALID_VARIABLE_ROLES = {
+    "main",
+    "intervening",
+    "sociodemographic",
+    "control",
+    "dependent",
+    "outcome",
+}
 VALID_VARIABLE_CLASSIFICATIONS = {"independent", "dependent", "segment"}
 
 # Roles legacy que aún pueden llegar de clientes viejos; se normalizan al vocabulario nuevo.
+# "control" y "dependent" ya son roles válidos de primera clase (ver VALID_VARIABLE_ROLES)
+# y no se normalizan.
 LEGACY_ROLE_MAP = {
-    "demographic": "intervening",
+    "demographic": "sociodemographic",
     "independent": "main",
-    "dependent": "main",
-    "control": "main",
     "covariate": "main",
     "moderator": "main",
     "mediator": "main",
     # Vocabulario en español del wizard legacy (FormWizard).
     "interviniente": "intervening",
-    "sociodemografica": "intervening",
+    "sociodemografica": "sociodemographic",
     "agrupacion": "intervening",
     "independiente": "main",
-    "dependiente": "main",
-    "resultado": "main",
+    "dependiente": "dependent",
+    "resultado": "outcome",
 }
 
 

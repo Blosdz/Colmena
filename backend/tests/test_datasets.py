@@ -396,13 +396,13 @@ def test_dataset_build_edit_and_export_flow(client: TestClient):
     export_excel = client.post(f"/api/v1/forms/{form['id']}/exports/excel", json=export_payload)
     assert export_excel.status_code == 201
     export_excel_body = export_excel.json()
-    export_excel_path = BACKEND_DIR / export_excel_body["file_path"].replace("/", "\\")
+    export_excel_path = BACKEND_DIR / export_excel_body["file_path"]
     assert export_excel_path.exists()
 
     export_csv = client.post(f"/api/v1/forms/{form['id']}/exports/csv", json=export_payload)
     assert export_csv.status_code == 201
     export_csv_body = export_csv.json()
-    export_csv_path = BACKEND_DIR / export_csv_body["file_path"].replace("/", "\\")
+    export_csv_path = BACKEND_DIR / export_csv_body["file_path"]
     assert export_csv_path.exists()
 
     exports_list = client.get(f"/api/v1/forms/{form['id']}/exports")
