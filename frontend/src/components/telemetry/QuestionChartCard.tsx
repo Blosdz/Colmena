@@ -1,15 +1,19 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Bar, Pie } from "react-chartjs-2";
-import type { ChartData, ChartOptions } from "chart.js";
+import type { Chart as ChartJS, ChartData, ChartOptions } from "chart.js";
 import { BarChart3, PieChart } from "lucide-react";
 
 import type { QuestionDescriptive } from "../../types/analysis";
+import { useBarPalette } from "../../hooks/useBarPalette";
+import { useChartColors } from "../../hooks/useChartColors";
 import {
   frequenciesToChartData,
-  palette,
   pickChartType,
   totalFrequency,
 } from "../../utils/telemetryChart";
+import { ChartColorPicker } from "../reports/ChartColorPicker";
+import { ExportChartButton } from "../reports/ExportChartButton";
+import { makeBarValueLabelPlugin } from "./chartPlugins";
 import { ensureChartsRegistered } from "./chartSetup";
 
 ensureChartsRegistered();
@@ -107,17 +111,31 @@ function ViewToggle({ view, onChange }: { view: ChartView; onChange: (v: ChartVi
   );
 }
 
-export function QuestionChartCard({ question }: { question: QuestionDescriptive }) {
+export function QuestionChartCard({
+  question,
+  formId,
+}: {
+  question: QuestionDescriptive;
+  formId: string;
+}) {
   const baseType = pickChartType(question);
   const isNumeric = baseType === "numeric";
   const [view, setView] = useState<ChartView>(baseType === "doughnut" ? "pie" : "bar");
+  const pieRef = useRef<ChartJS<"pie"> | null>(null);
+  const barRef = useRef<ChartJS<"bar"> | null>(null);
 
   const datum = useMemo(
     () => frequenciesToChartData(question.frequencies, { showPercent: true }),
     [question.frequencies],
   );
   const total = totalFrequency(question.frequencies);
-  const colors = useMemo(() => palette(datum.labels.length), [datum.labels.length]);
+  const chartKey = `telemetry-question-${question.question_id}`;
+  // Un solo sorteo por pregunta: lo comparten el pastel, las barras y los
+  // puntos de color de la tabla de frecuencias.
+  const barPalette = useBarPalette(datum.labels.length, chartKey);
+  const defaultColors = useMemo(() => barPalette.colors ?? [], [barPalette.colors]);
+  const chartColors = useChartColors(formId, chartKey, datum.labels.length, defaultColors);
+  const colors = chartColors.colors;
 
   const title = question.label || question.code || "Pregunta";
 
@@ -139,11 +157,33 @@ export function QuestionChartCard({ question }: { question: QuestionDescriptive 
           </span>
         ) : null}
         {!isNumeric && total > 0 ? <ViewToggle view={view} onChange={setView} /> : null}
+        {!isNumeric && total > 0 ? (
+          <ChartColorPicker
+            labels={datum.labels}
+            colors={colors}
+            onSave={chartColors.save}
+            onReset={chartColors.reset}
+            isSaving={chartColors.isSaving}
+            isCustom={chartColors.isCustom}
+          />
+        ) : null}
+        {!isNumeric && total > 0 ? (
+          <ExportChartButton
+            formId={formId}
+            chartId={chartKey}
+            chartType={view}
+            title={title}
+            getImage={() =>
+              (view === "pie" ? pieRef.current : barRef.current)?.toBase64Image() ?? null
+            }
+          />
+        ) : null}
       </div>
     </div>
   );
 
-  let chart: React.ReactNode = null;
+  // Sin valor inicial: todas las ramas de abajo le asignan uno.
+  let chart: React.ReactNode;
   let table: React.ReactNode = null;
 
   if (isNumeric) {
@@ -154,6 +194,10 @@ export function QuestionChartCard({ question }: { question: QuestionDescriptive 
         Sin respuestas aún
       </div>
     );
+  } else if (barPalette.isPending) {
+    // Sin la paleta del backend el gráfico saldría con los colores por defecto
+    // y cambiaría de color al llegar la respuesta.
+    chart = <div className="h-[140px]" />;
   } else {
     table = <FrequencyTable labels={datum.labels} colors={colors} values={datum.values} total={total} />;
 
@@ -184,12 +228,11 @@ export function QuestionChartCard({ question }: { question: QuestionDescriptive 
       };
       chart = (
         <div className="mx-auto h-[140px] w-[140px]">
-          <Pie data={data} options={options} />
+          <Pie ref={pieRef} data={data} options={options} />
         </div>
       );
     } else {
-      // Barras: horizontales si hay muchas categorías (etiquetas largas), verticales si son pocas.
-      const horizontal = datum.labels.length > 6;
+      // Barras siempre verticales, coherentes con el resto de gráficos del reporte.
       const data: ChartData<"bar"> = {
         labels: datum.labels,
         datasets: [
@@ -202,9 +245,10 @@ export function QuestionChartCard({ question }: { question: QuestionDescriptive 
         ],
       };
       const options: ChartOptions<"bar"> = {
-        indexAxis: horizontal ? "y" : "x",
+        indexAxis: "x",
         responsive: true,
         maintainAspectRatio: false,
+        layout: { padding: { top: 20 } },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -215,19 +259,20 @@ export function QuestionChartCard({ question }: { question: QuestionDescriptive 
         },
         scales: {
           x: {
-            grid: { display: horizontal },
-            ticks: horizontal ? { precision: 0 } : { autoSkip: false, maxRotation: 0, minRotation: 0, font: { size: 10 } },
+            grid: { display: false },
+            ticks: { autoSkip: false, maxRotation: 0, minRotation: 0, font: { size: 10 } },
           },
           y: {
-            grid: { display: !horizontal },
-            ticks: horizontal ? { font: { size: 10 } } : { precision: 0 },
+            grid: { display: true },
+            ticks: { precision: 0 },
             beginAtZero: true,
           },
         },
       };
+      const barPlugins = [makeBarValueLabelPlugin((index) => datum.captions[index])];
       chart = (
         <div className="h-[150px]">
-          <Bar data={data} options={options} />
+          <Bar ref={barRef} data={data} options={options} plugins={barPlugins} />
         </div>
       );
     }

@@ -15,6 +15,7 @@ import { listProjectForms } from "../api/forms";
 import { getProject } from "../api/projects";
 import { getBaremoResolution } from "../api/scoring";
 import { PageHeader } from "../components/layout/PageHeader";
+import { BaremoLevelsChart, type BaremoLevelDatum } from "../components/reports/BaremoLevelsChart";
 import { BaremoResultTable } from "../components/results/BaremoResultTable";
 import { useActiveStudy } from "../components/study/useActiveStudy";
 import { LoadingState } from "../components/ui/LoadingState";
@@ -42,6 +43,18 @@ interface EditableTable {
 
 function computedRowsFromResolution(item: VariableBaremo): BaremoTableRow[] {
   return item.levels.map((level) => ({ category: level.label, frequency: level.n }));
+}
+
+/** Deriva los niveles del gráfico directamente de las filas de la tabla editable,
+ * para que el gráfico siempre muestre exactamente lo que el usuario ve y edita. */
+function chartLevelsFromRows(rows: BaremoTableRow[]): BaremoLevelDatum[] {
+  const total = rows.reduce((sum, row) => sum + row.frequency, 0);
+  return rows.map((row, index) => ({
+    label: row.category,
+    percent: total > 0 ? (row.frequency / total) * 100 : 0,
+    n: row.frequency,
+    severity_order: index,
+  }));
 }
 
 /** Los configs de nivel "instrument" o "project_variable" representan la variable completa. */
@@ -275,15 +288,22 @@ export function ProjectResultsPage() {
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {sectionTables.map((table) => (
-            <BaremoResultTable
-              key={table.tableKey}
-              title={table.title}
-              rows={table.rows}
-              onTitleChange={(title) => updateTable(table.tableKey, { title })}
-              onRowsChange={(rows) => updateTable(table.tableKey, { rows })}
-              onDelete={table.computedRows ? undefined : () => removeTable(table)}
-              onReset={table.computedRows ? () => resetTable(table.tableKey) : undefined}
-            />
+            <div key={table.tableKey} className="space-y-3">
+              <BaremoResultTable
+                title={table.title}
+                rows={table.rows}
+                onTitleChange={(title) => updateTable(table.tableKey, { title })}
+                onRowsChange={(rows) => updateTable(table.tableKey, { rows })}
+                onDelete={table.computedRows ? undefined : () => removeTable(table)}
+                onReset={table.computedRows ? () => resetTable(table.tableKey) : undefined}
+              />
+              <BaremoLevelsChart
+                formId={formId}
+                chartKey={table.tableKey}
+                variableLabel={table.title}
+                levels={chartLevelsFromRows(table.rows)}
+              />
+            </div>
           ))}
         </div>
       )}

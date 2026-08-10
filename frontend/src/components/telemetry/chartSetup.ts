@@ -14,6 +14,7 @@ import {
   PieController,
   PointElement,
   ScatterController,
+  Title,
   Tooltip,
 } from "chart.js";
 
@@ -34,6 +35,7 @@ export function ensureChartsRegistered() {
     PieController,
     PointElement,
     ScatterController,
+    Title,
     Tooltip,
     Legend,
   );

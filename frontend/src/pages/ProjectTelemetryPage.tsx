@@ -254,7 +254,7 @@ export function ProjectTelemetryPage() {
         />
       </div>
 
-      <TelemetryChartsGrid questions={filteredQuestions} />
+      <TelemetryChartsGrid questions={filteredQuestions} formId={primaryForm.id} />
 
       <div className="space-y-3">
         <div>

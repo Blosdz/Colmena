@@ -45,3 +45,4 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     response_control_flags: Mapped[list["ResponseControlFlag"]] = relationship(back_populates="project")
     chart_editor_states: Mapped[list["ChartEditorState"]] = relationship(back_populates="project")
     baremo_table_states: Mapped[list["BaremoTableState"]] = relationship(back_populates="project")
+    chart_palettes: Mapped[list["ChartPalette"]] = relationship(back_populates="project")

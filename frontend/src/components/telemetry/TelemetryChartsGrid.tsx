@@ -8,7 +8,13 @@ function isChartable(question: QuestionDescriptive): boolean {
   return question.frequencies.length > 0 || Boolean(question.numeric);
 }
 
-export function TelemetryChartsGrid({ questions }: { questions: QuestionDescriptive[] }) {
+export function TelemetryChartsGrid({
+  questions,
+  formId,
+}: {
+  questions: QuestionDescriptive[];
+  formId: string;
+}) {
   const chartable = questions.filter(isChartable);
 
   if (chartable.length === 0) {
@@ -29,7 +35,7 @@ export function TelemetryChartsGrid({ questions }: { questions: QuestionDescript
   return (
     <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {chartable.map((question) => (
-        <QuestionChartCard key={question.question_id} question={question} />
+        <QuestionChartCard key={question.question_id} question={question} formId={formId} />
       ))}
     </div>
   );

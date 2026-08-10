@@ -35,7 +35,6 @@ export function ItemsPanel({
   onUpdateItem,
   onRemoveItem,
   onAddManualItem,
-  onAddQuickDimension,
   onUpdateScale,
 }: Props) {
   const [showScaleEditor, setShowScaleEditor] = useState(false);

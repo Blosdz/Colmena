@@ -8,7 +8,7 @@ export type BaremoLevel = {
 };
 
 const DEFAULT_LEVEL_NAMES = ["Muy Bajo", "Bajo", "Medio", "Alto", "Muy Alto"];
-const THREE_LEVEL_NAMES = ["Bajo", "Medio", "Alto"];
+export const THREE_LEVEL_NAMES = ["Malo", "Regular", "Bueno"];
 
 export function calculateEqualRangeBaremos(
   minScore: number,

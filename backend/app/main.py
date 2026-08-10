@@ -9,11 +9,11 @@ from app.routers.analysis_orchestrator import router as analysis_orchestrator_ro
 from app.routers.baremo_table_states import router as baremo_table_states_router
 from app.routers.catalogs import router as catalogs_router
 from app.routers.chart_editor_states import router as chart_editor_states_router
+from app.routers.chart_palettes import router as chart_palettes_router
 from app.routers.apa_tables import router as apa_tables_router
 from app.routers.auth import router as auth_router
 from app.routers.categorical_associations import router as categorical_associations_router
 from app.routers.charts import router as charts_router
-from app.routers.chart_exports import router as chart_exports_router
 from app.routers.chart_images import router as chart_images_router
 from app.routers.correlations import router as correlations_router
 from app.routers.descriptives import router as descriptives_router
@@ -80,7 +80,6 @@ app.include_router(analysis_orchestrator_router)
 app.include_router(apa_tables_router)
 app.include_router(charts_router)
 app.include_router(chart_images_router)
-app.include_router(chart_exports_router)
 app.include_router(correlations_router)
 app.include_router(regression_router)
 app.include_router(group_comparisons_router)
@@ -95,6 +94,7 @@ app.include_router(statistical_decisions_router)
 app.include_router(scoring_router)
 app.include_router(word_reports_router)
 app.include_router(chart_editor_states_router)
+app.include_router(chart_palettes_router)
 app.include_router(baremo_table_states_router)
 app.include_router(telemetry_ws_router)
 

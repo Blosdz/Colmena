@@ -5,7 +5,7 @@ from typing import Any
 import pandas as pd
 
 DEFAULT_LEVEL_NAMES = ["Muy Bajo", "Bajo", "Medio", "Alto", "Muy Alto"]
-THREE_LEVEL_NAMES = ["Bajo", "Medio", "Alto"]
+THREE_LEVEL_NAMES = ["Malo", "Regular", "Bueno"]
 
 
 def compute_equal_range_baremo(

@@ -1,18 +1,17 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Download, FileBarChart2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
 import { listProjectForms } from "../api/forms";
 import { getProject } from "../api/projects";
 import {
-  exportReportChartsZip,
   getCorrelationsByVariable,
   getNormalityByVariable,
   getReliabilityByDimension,
   getReliabilityByInstrument,
   runPairCorrelation,
-  type CorrelationMatrixCell,
+  uniqueCorrelationPairs,
   type CorrelationMatrixReport,
   type CorrelationMethod,
   type NormalityMethod,
@@ -23,11 +22,13 @@ import {
 } from "../api/reports";
 import { PageHeader } from "../components/layout/PageHeader";
 import { AlphaBarChart } from "../components/reports/AlphaBarChart";
+import { ChartExportPickerModal } from "../components/reports/ChartExportPickerModal";
 import { CorrelationScatterChart } from "../components/reports/CorrelationScatterChart";
 import { NormalityHistogramCard } from "../components/reports/NormalityHistogramCard";
 import { useActiveStudy } from "../components/study/useActiveStudy";
 import { LoadingState } from "../components/ui/LoadingState";
 import { Select, SelectOption } from "../components/ui/Select";
+import { normalityDecision } from "../utils/normality";
 
 const ALPHA_CLASSIFICATION_LABELS: Record<string, string> = {
   excelente: "Excelente",
@@ -98,9 +99,11 @@ function ReliabilityRows({ label, targets }: { label: string; targets: Reliabili
 }
 
 function CronbachSection({
+  formId,
   variableReport,
   dimensionReport,
 }: {
+  formId: string;
   variableReport: ReliabilityReport;
   dimensionReport: ReliabilityReport;
 }) {
@@ -137,6 +140,7 @@ function CronbachSection({
         </div>
       </div>
       <AlphaBarChart
+        formId={formId}
         variableTargets={variableReport.results}
         dimensionTargets={dimensionReport.results}
       />
@@ -145,12 +149,6 @@ function CronbachSection({
 }
 
 // ---------- Módulo 2: Pruebas de Normalidad ----------
-
-function normalityDecision(result: NormalityTestResult): { text: string; tone: string } {
-  if (result.classification === "normal") return { text: "Normal → Pearson", tone: "text-success" };
-  if (result.classification === "non_normal") return { text: "No normal → Spearman", tone: "text-danger" };
-  return { text: "No concluyente", tone: "text-muted" };
-}
 
 function NormalityRows({ label, results }: { label: string; results: NormalityTestResult[] }) {
   if (results.length === 0) return null;
@@ -289,15 +287,6 @@ function correlationSignificance(value: string, alpha: number): { text: string; 
   return { text: "No aplicable", tone: "text-muted" };
 }
 
-function uniqueCorrelationPairs(report: CorrelationMatrixReport): CorrelationMatrixCell[] {
-  const order = new Map(report.targets.map((target, index) => [target.target_id, index]));
-  return report.cells.filter((cell) => {
-    const rowIndex = order.get(cell.row_target_id) ?? -1;
-    const columnIndex = order.get(cell.column_target_id) ?? -1;
-    return rowIndex >= 0 && columnIndex >= 0 && rowIndex < columnIndex;
-  });
-}
-
 function CorrelationPairExplorer({
   formId,
   method,
@@ -379,6 +368,7 @@ function CorrelationPairExplorer({
         </div>
       ) : pairResult && pairResult.x_values && pairResult.y_values ? (
         <CorrelationScatterChart
+          formId={formId}
           xLabel={xLabel}
           yLabel={yLabel}
           xValues={pairResult.x_values}
@@ -548,19 +538,7 @@ export function ProjectReportsPage() {
     retry: false,
   });
 
-  const exportChartsMutation = useMutation({
-    mutationFn: async () => {
-      const blob = await exportReportChartsZip(formId, correlationMethod);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `reportes-graficas-${formId}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    },
-  });
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   if (projectQuery.isLoading || formsQuery.isLoading) {
     return <LoadingState label="Cargando reportes..." />;
@@ -629,21 +607,26 @@ export function ProjectReportsPage() {
         actions={
           <button
             className="colmena-button-secondary inline-flex items-center justify-center"
-            disabled={exportChartsMutation.isPending}
-            onClick={() => exportChartsMutation.mutate()}
+            onClick={() => setExportModalOpen(true)}
             type="button"
           >
             <Download className="mr-2 h-4 w-4" />
-            {exportChartsMutation.isPending ? "Generando gráficas..." : "Exportar gráficas"}
+            Exportar gráficas
           </button>
         }
       />
-      {exportChartsMutation.isError ? (
-        <p className="text-sm text-danger">
-          No se pudieron generar las gráficas. Verifica que existan al menos 5 casos válidos por variable.
-        </p>
-      ) : null}
+      <ChartExportPickerModal
+        open={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        formId={formId}
+        variableReport={reliabilityVariablesQuery.data}
+        dimensionReport={reliabilityDimensionsQuery.data}
+        normalityReport={normalityVariablesQuery.data}
+        correlationReport={correlationVariablesQuery.data}
+        correlationMethod={correlationMethod}
+      />
       <CronbachSection
+        formId={formId}
         variableReport={reliabilityVariablesQuery.data}
         dimensionReport={reliabilityDimensionsQuery.data}
       />

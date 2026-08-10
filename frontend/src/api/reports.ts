@@ -217,8 +217,12 @@ export function runPairCorrelation(
   });
 }
 
-// ---------- Exportar gráficas (PNG generados con Python/matplotlib) ----------
-
-export function exportReportChartsZip(formId: string, method: CorrelationMethod = "auto") {
-  return apiClient.getBlob(`/api/v1/forms/${formId}/chart-exports/report-bundle.zip`, { method });
+/** Pares únicos (sin duplicar la mitad simétrica de la matriz) para listar/graficar. */
+export function uniqueCorrelationPairs(report: CorrelationMatrixReport): CorrelationMatrixCell[] {
+  const order = new Map(report.targets.map((target, index) => [target.target_id, index]));
+  return report.cells.filter((cell) => {
+    const rowIndex = order.get(cell.row_target_id) ?? -1;
+    const columnIndex = order.get(cell.column_target_id) ?? -1;
+    return rowIndex >= 0 && columnIndex >= 0 && rowIndex < columnIndex;
+  });
 }

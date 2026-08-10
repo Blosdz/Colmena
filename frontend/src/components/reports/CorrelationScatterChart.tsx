@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Chart } from "react-chartjs-2";
-import type { ChartData, ChartOptions } from "chart.js";
+import type { Chart as ChartJS, ChartData, ChartOptions } from "chart.js";
 
 import { ensureChartsRegistered } from "../telemetry/chartSetup";
+import { ExportChartButton } from "./ExportChartButton";
 
 ensureChartsRegistered();
 
@@ -44,7 +45,18 @@ function linearRegression(x: number[], y: number[]): { slope: number; intercept:
   return { slope, intercept: meanY - slope * meanX };
 }
 
+/** Slug simple para identificar de forma estable una gráfica de correlación (sin IDs propios de target). */
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
 interface CorrelationScatterChartProps {
+  formId: string;
   xLabel: string;
   yLabel: string;
   xValues: number[];
@@ -53,6 +65,10 @@ interface CorrelationScatterChartProps {
   pValue: number | null;
   method: string;
   alpha: number;
+  /** Desactiva la animación para que el canvas quede pintado de forma síncrona al montar (captura para export). */
+  exportMode?: boolean;
+  /** Se dispara con la instancia de Chart.js apenas está construida (útil para capturar en export). */
+  onChartReady?: (chart: ChartJS<"scatter" | "line">) => void;
 }
 
 /**
@@ -62,6 +78,7 @@ interface CorrelationScatterChartProps {
  * hace que el gráfico cambie de forma real al alternar el método, no solo los números.
  */
 export function CorrelationScatterChart({
+  formId,
   xLabel,
   yLabel,
   xValues,
@@ -70,7 +87,10 @@ export function CorrelationScatterChart({
   pValue,
   method,
   alpha,
+  exportMode = false,
+  onChartReady,
 }: CorrelationScatterChartProps) {
+  const chartRef = useRef<ChartJS<"scatter" | "line"> | null>(null);
   const useRanks = method === "spearman" || method === "kendall";
 
   const [plotX, plotY] = useMemo(
@@ -88,7 +108,9 @@ export function CorrelationScatterChart({
     const datasets: ChartData<"scatter" | "line">["datasets"] = [
       {
         type: "scatter" as const,
-        label: `${axisXLabel} vs ${axisYLabel}`,
+        // Los ejes ya dicen qué variables son; en la leyenda basta con
+        // distinguir los puntos de la recta de tendencia.
+        label: "Observaciones",
         data: points,
         backgroundColor: "transparent",
         borderColor: "#2563EB",
@@ -120,8 +142,14 @@ export function CorrelationScatterChart({
     () => ({
       responsive: true,
       maintainAspectRatio: false,
+      animation: exportMode ? false : undefined,
       plugins: {
-        legend: { display: false },
+        // Dentro del lienzo: es lo único que llega al PNG del reporte.
+        legend: {
+          display: true,
+          position: "bottom",
+          labels: { boxWidth: 12, boxHeight: 8, font: { size: 11 }, color: "#6B7280" },
+        },
         tooltip: {
           callbacks: {
             label: (ctx) =>
@@ -141,7 +169,7 @@ export function CorrelationScatterChart({
         },
       },
     }),
-    [axisXLabel, axisYLabel],
+    [axisXLabel, axisYLabel, exportMode],
   );
 
   if (xValues.length === 0) return null;
@@ -152,8 +180,25 @@ export function CorrelationScatterChart({
 
   return (
     <div className="relative rounded-[18px] border border-border bg-white p-4 shadow-card">
+      <div className="absolute right-4 top-4 z-10">
+        <ExportChartButton
+          formId={formId}
+          chartId={`correlation-${slugify(xLabel)}-${slugify(yLabel)}-${method}`}
+          chartType="scatter"
+          title={`${xLabel} vs ${yLabel}`}
+          getImage={() => chartRef.current?.toBase64Image() ?? null}
+        />
+      </div>
       <div style={{ height: 300 }}>
-        <Chart type="scatter" data={data} options={options} />
+        <Chart
+          ref={(instance) => {
+            chartRef.current = instance ?? null;
+            if (instance) onChartReady?.(instance);
+          }}
+          type="scatter"
+          data={data}
+          options={options}
+        />
       </div>
       <div className="absolute left-9 top-6 rounded-md border border-border bg-white/95 px-3 py-2 text-xs leading-relaxed text-dark shadow-soft">
         <div>

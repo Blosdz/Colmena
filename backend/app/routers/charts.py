@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.charts.palette import random_bar_colors
 from app.core.database import get_db
 from app.schemas.chart import (
     ChartBatchRead,
@@ -11,6 +12,7 @@ from app.schemas.chart import (
     ChartOptionsRead,
     ChartSpecRead,
 )
+from app.schemas.echarts import PaletteRead
 from app.services.chart_service import ChartService
 
 
@@ -96,6 +98,20 @@ def get_chart_options(
     service: ChartService = Depends(get_chart_service),
 ) -> ChartOptionsRead:
     return service.list_chart_options(form_id)
+
+
+@router.get("/api/v1/charts/palette", response_model=PaletteRead)
+def get_bar_palette(
+    count: int = Query(ge=0, le=200),
+    seed: str | None = Query(default=None),
+) -> PaletteRead:
+    """Paleta aleatoria para las barras de un gráfico.
+
+    No depende del formulario ni de la base de datos: es solo estilo. El
+    frontend la pide una vez por gráfico y la usa tanto en la vista 2D como en
+    la tabla que acompaña al gráfico.
+    """
+    return PaletteRead(colors=random_bar_colors(count, seed=seed))
 
 
 @router.post("/api/v1/forms/{form_id}/charts/export/json", response_model=ChartExportRead)
