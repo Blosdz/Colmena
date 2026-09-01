@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.exceptions import AuthenticationError, ColmenaDomainError
+from app.core.exceptions import AuthenticationError, ColmenaDomainError, ConflictError
 from app.models.user import User
 
 
@@ -88,6 +88,21 @@ class AppThesisAuthService:
                 select(User).where(User.appthesis_user_id == appthesis_user_id)
             )
         ).scalar_one_or_none()
+
+        # A user may have registered in Colmena before using AppThesis SSO.
+        # Reuse that account by email instead of attempting an INSERT that
+        # violates users.email's unique constraint.
+        if existing is None and email:
+            existing = (
+                await self.session.execute(select(User).where(User.email == email))
+            ).scalar_one_or_none()
+
+        if (
+            existing is not None
+            and existing.appthesis_user_id not in (None, appthesis_user_id)
+        ):
+            raise ConflictError("El correo ya está vinculado a otra cuenta de AppThesis.")
+
         created = existing is None
 
         if existing is None:
@@ -104,6 +119,7 @@ class AppThesisAuthService:
             self.session.add(user)
         else:
             user = existing
+            user.appthesis_user_id = appthesis_user_id
             user.email = email or user.email
             user.status = "ACTIVE"
             if first_name:

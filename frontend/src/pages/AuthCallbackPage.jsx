@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { linkAppthesis } from '../api/auth.js';
-import { setStoredToken } from '../api/client.js';
+import { clearStoredToken, setStoredToken } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 
 /**
@@ -35,6 +35,9 @@ export default function AuthCallbackPage() {
         await reload?.();
         navigate(next, { replace: true });
       } catch {
+        // Do not leave an unlinked AppThesis token in local storage. The user
+        // can retry the SSO flow cleanly after the backend/API is available.
+        clearStoredToken();
         setError('No se pudo validar la sesión de AppThesis. Vuelve a intentarlo.');
       }
     })();
