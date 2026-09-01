@@ -1,137 +1,178 @@
-from datetime import datetime, timezone
+from __future__ import annotations
 
-from fastapi import HTTPException, status
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session, selectinload
+from datetime import UTC, datetime, time
 
-from app.models.approach import Approach
-from app.models.design_type import DesignType
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.exceptions import AuthorizationError, NotFoundError, ValidationDomainError
+from app.core.pagination import Page, PageParams, paginate
+from app.models.analytics_plan import AnalyticsPlan
 from app.models.project import Project
-from app.models.project_demographics import ProjectDemographics
-from app.models.type_research import TypeResearch
-from app.schemas.project import ProjectCreate, ProjectUpdate
-
-_CATALOG_BY_FIELD = {
-    "type_research_id": TypeResearch,
-    "design_type_id": DesignType,
-    "approach_id": Approach,
-}
+from app.models.study import Study
+from app.models.user import OrganizationMembership, User
+from app.repositories.projects import ProjectRepository
+from app.schemas.projects import ProjectCreate, ProjectRead, ProjectUpdate
+from app.services.censopas_provisioning_service import CensopasProvisioningService
+from app.services.organization_service import OrganizationService
 
 
 class ProjectService:
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.repo = ProjectRepository(session)
 
-    def _validate_catalog(self, field: str, value: str | None) -> None:
-        if value is None:
-            return
-        model = _CATALOG_BY_FIELD[field]
-        exists = self.db.scalar(
-            select(model.id).where(model.id == value, model.deleted_at.is_(None))
+    async def create(self, payload: ProjectCreate) -> Project:
+        try:
+            organization_id = payload.organization_id
+            if payload.project_type == "CENSO":
+                owner = await self.session.get(User, payload.owner_user_id)
+                if owner is None:
+                    raise NotFoundError(f"Usuario {payload.owner_user_id} no encontrado")
+                if payload.new_organization is not None:
+                    if organization_id is not None:
+                        raise ValidationDomainError(
+                            "Selecciona una organización existente o registra una nueva, no ambas."
+                        )
+                    organization = await OrganizationService(self.session).create(
+                        payload.new_organization, owner, commit=False
+                    )
+                    organization_id = organization.id
+                elif organization_id is not None:
+                    membership = (
+                        await self.session.execute(
+                            select(OrganizationMembership).where(
+                                OrganizationMembership.organization_id == organization_id,
+                                OrganizationMembership.user_id == owner.id,
+                            )
+                        )
+                    ).scalars().first()
+                    if membership is None:
+                        raise AuthorizationError(
+                            "Debes pertenecer a la organización para crear el proyecto."
+                        )
+                else:
+                    raise ValidationDomainError(
+                        "Un proyecto CENSOPAS requiere una organización."
+                    )
+            project_metadata = dict(payload.metadata or {})
+            if payload.project_type == "CENSO" and payload.censopas_study is not None:
+                project_metadata["requested_version_kind"] = payload.censopas_study.instrument_version
+                project_metadata["analytics_plan_code"] = payload.censopas_study.analytics_plan
+            project = Project(
+                owner_user_id=payload.owner_user_id,
+                organization_id=organization_id,
+                name=payload.name,
+                project_type=payload.project_type,
+                description=payload.description,
+                metadata_=project_metadata,
+            )
+            project = await self.repo.create(project)
+            if project.project_type == "CENSO":
+                await CensopasProvisioningService(self.session).provision_project(project)
+                if payload.censopas_study is not None:
+                    await self._create_initial_study(project, payload.censopas_study)
+            await self.session.commit()
+            await self.session.refresh(project)
+            return project
+        except Exception:
+            await self.session.rollback()
+            raise
+
+    async def _create_initial_study(self, project: Project, config) -> Study:
+        survey_id = (project.metadata_ or {}).get("survey_id")
+        if survey_id is None:
+            raise ValidationDomainError("El proyecto CENSOPAS no tiene formulario provisionado.")
+        plan = (
+            await self.session.execute(
+                select(AnalyticsPlan).where(
+                    AnalyticsPlan.code == config.analytics_plan, AnalyticsPlan.is_active.is_(True)
+                )
+            )
+        ).scalars().first()
+        if plan is None:
+            raise ValidationDomainError(
+                f"El plan analítico '{config.analytics_plan}' no está disponible."
+            )
+        start_at = (
+            datetime.combine(config.period_start, time.min, tzinfo=UTC)
+            if config.period_start
+            else None
         )
-        if exists is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{field} '{value}' no existe en el catalogo.",
-            )
-
-    def _load(self, project_id: str, user_id: str | None = None) -> Project | None:
-        statement = (
-            select(Project)
-            .where(Project.id == project_id, Project.deleted_at.is_(None))
-            .options(
-                selectinload(Project.type_research),
-                selectinload(Project.design_type),
-                selectinload(Project.approach),
-                selectinload(Project.demographics),
-            )
+        end_at = (
+            datetime.combine(config.period_end, time.max, tzinfo=UTC)
+            if config.period_end
+            else None
         )
-        if user_id is not None:
-            statement = statement.where(Project.user_id == user_id)
-        return self.db.scalar(statement)
+        settings = {
+            **(config.settings or {}),
+            "workplace_name": config.workplace_name,
+            "population_invited": config.population_invited,
+        }
+        study = Study(
+            project_id=project.id,
+            survey_id=int(survey_id),
+            instrument_version_id=(project.metadata_ or {}).get("instrument_version_id"),
+            analytics_plan_id=plan.id,
+            name=project.name,
+            study_type="CENSO",
+            barem_id=(project.metadata_ or {}).get("barem_id"),
+            start_at=start_at,
+            end_at=end_at,
+            settings=settings,
+            requires_invitation=config.requires_invitation,
+        )
+        self.session.add(study)
+        await self.session.flush()
+        project.metadata_ = {**(project.metadata_ or {}), "censopas_study_id": study.id}
+        return study
 
-    def create_project(self, payload: ProjectCreate, user_id: str) -> Project:
-        data = payload.model_dump()
-        demographics = data.pop("demographics", None)
-
-        for field in _CATALOG_BY_FIELD:
-            self._validate_catalog(field, data.get(field))
-
-        project = Project(user_id=user_id, **data)
-        if demographics is not None:
-            project.demographics = ProjectDemographics(
-                **{k: v for k, v in demographics.items() if v is not None}
-            )
-        self.db.add(project)
-        self.db.commit()
-        return self._load(project.id)
-
-    def get_project(self, project_id: str, user_id: str) -> Project:
-        project = self._load(project_id, user_id=user_id)
+    async def get(self, project_id: int) -> Project:
+        project = await self.repo.get(project_id)
         if project is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found",
-            )
+            raise NotFoundError(f"Proyecto {project_id} no encontrado")
+        # Repara proyectos CensoPÁS creados por una instancia anterior del
+        # backend antes de activar el aprovisionamiento automático.
+        if project.project_type == "CENSO" and not (project.metadata_ or {}).get("censopas_auto_provisioned"):
+            await CensopasProvisioningService(self.session).provision_project(project)
+            await self.session.commit()
+            await self.session.refresh(project)
         return project
 
-    def list_projects(self, user_id: str, limit: int, offset: int, q: str | None) -> tuple[list[Project], int]:
-        statement = (
-            select(Project)
-            .where(Project.deleted_at.is_(None), Project.user_id == user_id)
-            .options(
-                selectinload(Project.type_research),
-                selectinload(Project.design_type),
-                selectinload(Project.approach),
-                selectinload(Project.demographics),
-            )
-        )
-        count_statement = (
-            select(func.count())
-            .select_from(Project)
-            .where(Project.deleted_at.is_(None), Project.user_id == user_id)
-        )
-
-        if q:
-            query = f"%{q.strip()}%"
-            statement = statement.where(Project.title.ilike(query))
-            count_statement = count_statement.where(Project.title.ilike(query))
-
-        statement = statement.order_by(Project.created_at.desc()).offset(offset).limit(limit)
-        items = list(self.db.scalars(statement).all())
-        total = int(self.db.scalar(count_statement) or 0)
-        return items, total
-
-    def update_project(self, project_id: str, payload: ProjectUpdate, user_id: str) -> Project:
-        project = self.get_project(project_id, user_id)
-        update_data = payload.model_dump(exclude_unset=True)
-        demographics = update_data.pop("demographics", None)
-
-        for field in _CATALOG_BY_FIELD:
-            if field in update_data:
-                self._validate_catalog(field, update_data[field])
-
-        for field, value in update_data.items():
-            setattr(project, field, value)
-
-        if demographics is not None:
-            if project.demographics is None:
-                project.demographics = ProjectDemographics(
-                    **{k: v for k, v in demographics.items() if v is not None}
+    async def ensure_access(self, project: Project, user: User, *, write: bool) -> None:
+        if project.owner_user_id == user.id:
+            return
+        if project.project_type != "CENSO" or project.organization_id is None:
+            raise AuthorizationError("No tienes acceso a este proyecto.")
+        membership = (
+            await self.session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.organization_id == project.organization_id,
+                    OrganizationMembership.user_id == user.id,
                 )
-            else:
-                for field, value in demographics.items():
-                    if value is not None:
-                        setattr(project.demographics, field, value)
+            )
+        ).scalars().first()
+        if membership is None or (write and membership.role_code not in {"OWNER", "ADMIN"}):
+            raise AuthorizationError("No tienes permisos para esta operación.")
 
-        self.db.commit()
-        return self._load(project.id)
+    async def list(self, params: PageParams, owner_user_id: int) -> Page[ProjectRead]:
+        items, total = await paginate(
+            self.session, self.repo.list_stmt(owner_user_id), params
+        )
+        return Page[ProjectRead](
+            items=[ProjectRead.model_validate(item) for item in items],
+            page=params.page,
+            page_size=params.page_size,
+            total=total,
+        )
 
-    def soft_delete_project(self, project_id: str, user_id: str) -> dict[str, str]:
-        project = self.get_project(project_id, user_id)
-        project.deleted_at = datetime.now(timezone.utc)
-        self.db.commit()
-        return {
-            "status": "deleted",
-            "id": project.id,
-        }
+    async def update(self, project_id: int, payload: ProjectUpdate) -> Project:
+        project = await self.get(project_id)
+        data = payload.model_dump(exclude_unset=True)
+        if "metadata" in data:
+            project.metadata_ = data.pop("metadata")
+        for field, value in data.items():
+            setattr(project, field, value)
+        await self.session.commit()
+        await self.session.refresh(project)
+        return project

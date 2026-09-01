@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+import datetime as dt
+import uuid
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.common import metadata_field
+
+Direction = Literal["HIGHER_BETTER", "LOWER_BETTER"]
+
+
+class ScoringRuleCreate(BaseModel):
+    question_id: int | None = None
+    construct_id: int | None = None
+    rule_code: str | None = None
+    rule_type: str = "OPTION_SCORE_MAP"
+    parameters: dict = Field(default_factory=dict)
+    formula_expression: str | None = None
+    source_reference: str | None = None
+    rule_version: str | None = None
+    status: str = "DRAFT"
+
+
+class ScoringRuleRead(BaseModel):
+    id: int
+    public_id: uuid.UUID
+    instrument_version_id: int
+    question_id: int | None
+    construct_id: int | None
+    rule_code: str | None
+    rule_type: str
+    parameters: dict
+    status: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BaremCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    population_label: str | None = None
+    source_reference: str | None = None
+    barem_version: str | None = None
+    status: str = "DRAFT"
+    valid_from: dt.date | None = None
+    valid_to: dt.date | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
+class BaremRead(BaseModel):
+    id: int
+    public_id: uuid.UUID
+    instrument_version_id: int
+    name: str
+    population_label: str | None
+    source_reference: str | None
+    status: str
+    barem_version: str | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BaremBandInput(BaseModel):
+    construct_id: int
+    code: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=120)
+    min_value: float = Field(ge=0, le=100)
+    max_value: float = Field(ge=0, le=100)
+    severity_order: int = Field(ge=1)
+    interpretation: str | None = None
+    color_hint: str | None = None
+    classification_code: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
+class BaremBandRead(BaremBandInput):
+    id: int
+    barem_id: int
+    metadata: dict = metadata_field()
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BaremBandsReplace(BaseModel):
+    bands: list[BaremBandInput] = Field(min_length=1)
+
+
+class BaremBandGenerate(BaseModel):
+    construct_ids: list[int] | None = None
+    levels: Literal[3, 5] = 3
+    labels: list[str] | None = None
+    direction: Direction = "HIGHER_BETTER"
+    method: Literal["EQUAL_INTERVAL", "QUANTILES"] = "EQUAL_INTERVAL"
+    study_id: int | None = None
+
+
+class BaremDetailRead(BaremRead):
+    bands: list[BaremBandRead] = Field(default_factory=list)
+
+
+class BaremActivationRead(BaseModel):
+    id: int
+    status: str
+    activated: bool
+    validations: list[str] = Field(default_factory=list)
+
+
+class BaremCutoffCreate(BaseModel):
+    construct_id: int
+    cut_1: float
+    cut_2: float
+    direction: Direction = "HIGHER_BETTER"
+    favorable_label: str = "FAVORABLE"
+    intermediate_label: str = "INTERMEDIATE"
+    unfavorable_label: str = "UNFAVORABLE"
+
+
+class BaremCutoffRead(BaseModel):
+    id: int
+    barem_id: int
+    construct_id: int
+    cut_1: float
+    cut_2: float
+    direction: str | None
+    favorable_label: str
+    intermediate_label: str
+    unfavorable_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConstructResultRead(BaseModel):
+    """Resultado por constructo, con supresión de privacidad ya aplicada (§31)."""
+
+    construct_id: int
+    construct_code: str
+    construct_name: str
+    n_valid: int
+    suppressed: bool
+    favorable_n: int | None
+    intermediate_n: int | None
+    unfavorable_n: int | None
+    favorable_pct: float | None
+    intermediate_pct: float | None
+    unfavorable_pct: float | None
+    construct_score: float | None
+    classification_status: str
+    collective_classification: str | None
+
+
+class CensopasResultsResponse(BaseModel):
+    study_id: int
+    scoring_status: str
+    official_equivalence_enabled: bool
+    results: list[ConstructResultRead]

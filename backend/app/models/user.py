@@ -1,30 +1,53 @@
-from __future__ import annotations
+from sqlalchemy import BigInteger, ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column
 
-from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.models.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.base import Base, PublicIdMixin, TimestampMixin
+from app.models.types import BigIntPK, JSONVariant
 
 
-class User(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
-    """Usuario de Colmena vinculado a una cuenta de AppThesis (cross-login).
-
-    El enlace con AppThesis se guarda en ``appthesis_user_id`` (UUID de
-    ``"AT".usuarios.id`` en thesis-backend). Si la cuenta aun no esta vinculada
-    el valor es ``NULL`` (equivalente al ``?? 0`` del diseno original, ya que el
-    id real de AppThesis es un UUID, no un entero). ``thesis_id`` guarda la
-    tesis activa del estudiante en AppThesis para enlazar proyectos de Colmena.
-    """
+class User(Base, PublicIdMixin, TimestampMixin):
+    """Espejo mínimo de `colmena.users`. Reutilizada por todo el resto (harness §67.3)."""
 
     __tablename__ = "users"
 
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    username: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
-    appthesis_user_id: Mapped[str | None] = mapped_column(
-        String(36), nullable=True, unique=True, index=True
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True)
+    email: Mapped[str | None] = mapped_column(String(320), unique=True)
+    username: Mapped[str | None] = mapped_column(String(120), unique=True)
+    password_hash: Mapped[str | None] = mapped_column(String)
+    first_name: Mapped[str | None] = mapped_column(String(150))
+    last_name: Mapped[str | None] = mapped_column(String(150))
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="ACTIVE")
+    # Cross-login del monorepo `fullProyect`: UUID de `"AT".usuarios.id` en
+    # AppThesis (thesis-backend). NULL para cuentas standalone (login propio).
+    appthesis_user_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    thesis_id: Mapped[str | None] = mapped_column(String(64))
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
     )
-    thesis_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
-    projects: Mapped[list["Project"]] = relationship(back_populates="owner")
+
+class Organization(Base, PublicIdMixin, TimestampMixin):
+    __tablename__ = "organizations"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    legal_name: Mapped[str | None] = mapped_column(String(255))
+    tax_id: Mapped[str | None] = mapped_column(String(80))
+    organization_type: Mapped[str | None] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="ACTIVE")
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
+    )
+
+
+class OrganizationMembership(Base):
+    __tablename__ = "organization_memberships"
+
+    organization_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role_code: Mapped[str] = mapped_column(String(60), nullable=False)
+    permissions: Mapped[dict] = mapped_column(JSONVariant, nullable=False, default=dict)

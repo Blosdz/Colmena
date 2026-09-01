@@ -1,60 +1,84 @@
-from app.models.analysis_run import AnalysisRun
-from app.models.approach import Approach
-from app.models.baremo_table_state import BaremoTableState
-from app.models.chart_editor_state import ChartEditorState
-from app.models.chart_palette import ChartPalette
+"""Registro central de modelos ORM (Fase 1+2).
+
+Importar este módulo garantiza que todas las clases queden registradas en
+`Base.metadata`, necesario tanto para Alembic autogenerate como para
+`Base.metadata.create_all()` en tests con SQLite.
+"""
+
+from app.models.analysis import AnalysisMethod, AnalysisResult, AnalysisRun
+from app.models.analytics_plan import (
+    AnalyticsPlan,
+    AnalyticsPlanTool,
+    OrganizationCollaboratorCode,
+    StatisticalTool,
+)
+from app.models.audit import AuditLog
 from app.models.base import Base
-from app.models.design_type import DesignType
-from app.models.export_artifact import ExportArtifact
-from app.models.form import Form
-from app.models.form_answer import FormAnswer
-from app.models.control_scale import ControlScale
-from app.models.control_scale_item import ControlScaleItem
-from app.models.form_dimension import FormDimension
-from app.models.form_instrument import FormInstrument
-from app.models.form_question import FormQuestion
-from app.models.form_question_option import FormQuestionOption
-from app.models.form_response import FormResponse
-from app.models.form_section import FormSection
-from app.models.project import Project
-from app.models.project_demographics import ProjectDemographics
-from app.models.project_variable import ProjectVariable
-from app.models.response_control_flag import ResponseControlFlag
-from app.models.response_score import ResponseScore
-from app.models.scale import Scale, ScaleOption
-from app.models.score_band import ScoreBand
-from app.models.scoring_config import ScoringConfig
-from app.models.type_research import TypeResearch
-from app.models.user import User
+from app.models.censopas import Barem, BaremBand, BaremCutoff, ConstructResult, ConstructScore, ResponseScore
+from app.models.bsc import ActionPlan, ActionPlanItem, Kpi, KpiMeasurement
+from app.models.export import Export
+from app.models.report import ReportRun, ReportTemplate
+from app.models.construct import Construct, ConstructItem
+from app.models.instrument import Instrument, InstrumentVersion
+from app.models.option_set import OptionSet, OptionSetOption
+from app.models.participant import Participant, StudyInvitation
+from app.models.project import Project, ProjectMember
+from app.models.question import Question
+from app.models.response import Response, ResponseSelectedOption, ResponseSession, ResponseSessionUnit
+from app.models.scoring import ScoringRule
+from app.models.study import Study, StudySnapshot, StudyUnit, StudyUnitType
+from app.models.survey import Survey, SurveyQuestion, SurveySection
+from app.models.user import Organization, OrganizationMembership, User
+from app.models.variable import Variable
 
 __all__ = [
     "Base",
-    "AnalysisRun",
-    "Approach",
-    "BaremoTableState",
-    "ChartEditorState",
-    "ChartPalette",
-    "DesignType",
-    "ExportArtifact",
-    "Form",
-    "FormAnswer",
-    "ControlScale",
-    "ControlScaleItem",
-    "FormDimension",
-    "FormInstrument",
-    "FormQuestion",
-    "FormQuestionOption",
-    "FormResponse",
-    "FormSection",
-    "Project",
-    "ProjectDemographics",
-    "ProjectVariable",
-    "ResponseControlFlag",
-    "ResponseScore",
-    "Scale",
-    "ScaleOption",
-    "ScoreBand",
-    "ScoringConfig",
-    "TypeResearch",
     "User",
+    "Organization",
+    "OrganizationMembership",
+    "Project",
+    "ProjectMember",
+    "Instrument",
+    "InstrumentVersion",
+    "OptionSet",
+    "OptionSetOption",
+    "Question",
+    "Construct",
+    "ConstructItem",
+    "ScoringRule",
+    "Variable",
+    "AuditLog",
+    "Survey",
+    "SurveySection",
+    "SurveyQuestion",
+    "Study",
+    "StudySnapshot",
+    "StudyUnitType",
+    "StudyUnit",
+    "ResponseSession",
+    "ResponseSessionUnit",
+    "Response",
+    "ResponseSelectedOption",
+    "AnalysisMethod",
+    "AnalysisRun",
+    "AnalysisResult",
+    "AnalyticsPlan",
+    "StatisticalTool",
+    "AnalyticsPlanTool",
+    "OrganizationCollaboratorCode",
+    "ResponseScore",
+    "Barem",
+    "BaremBand",
+    "BaremCutoff",
+    "ConstructResult",
+    "ConstructScore",
+    "Export",
+    "ActionPlan",
+    "ActionPlanItem",
+    "Kpi",
+    "KpiMeasurement",
+    "ReportTemplate",
+    "ReportRun",
+    "Participant",
+    "StudyInvitation",
 ]

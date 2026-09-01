@@ -1,0 +1,62 @@
+-- Migración 0004: variables de puntaje vinculadas a constructos.
+-- PostgreSQL 14+. Idempotente: puede ejecutarse nuevamente sin duplicar objetos.
+-- Ejecución manual recomendada:
+--   psql -v ON_ERROR_STOP=1 -1 -d colmena -f backend/migrations/versions/sql/0004_construct_score_variables.sql
+-- Use una URL postgresql:// estándar si necesita indicar conexión; no la URL postgresql+asyncpg:// de SQLAlchemy.
+
+SET search_path TO colmena, public;
+
+ALTER TABLE colmena.variables
+    ADD COLUMN IF NOT EXISTS construct_id BIGINT;
+
+DO $migration$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = 'colmena'
+          AND t.relname = 'variables'
+          AND c.conname = 'fk_variables_construct_id'
+    ) THEN
+        ALTER TABLE colmena.variables
+            ADD CONSTRAINT fk_variables_construct_id
+            FOREIGN KEY (construct_id)
+            REFERENCES colmena.constructs(id)
+            ON DELETE CASCADE;
+    END IF;
+END
+$migration$;
+
+CREATE INDEX IF NOT EXISTS idx_variables_construct
+    ON colmena.variables (construct_id);
+
+DO $migration$
+BEGIN
+    IF EXISTS (
+        SELECT construct_id
+        FROM colmena.variables
+        WHERE construct_id IS NOT NULL
+        GROUP BY project_id, construct_id
+        HAVING COUNT(*) > 1
+    ) THEN
+        RAISE EXCEPTION
+            'No se puede crear uq_variables_project_construct: existen variables duplicadas por proyecto y constructo';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = 'colmena'
+          AND t.relname = 'variables'
+          AND c.conname = 'uq_variables_project_construct'
+    ) THEN
+        ALTER TABLE colmena.variables
+            ADD CONSTRAINT uq_variables_project_construct
+            UNIQUE (project_id, construct_id);
+    END IF;
+END
+$migration$;

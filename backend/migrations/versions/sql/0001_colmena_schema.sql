@@ -1,0 +1,1111 @@
+
+-- ============================================================================
+-- COLMENA - Esquema PostgreSQL unificado
+-- Soporta:
+--   * Colmena Tesistas / proyectos académicos
+--   * CENSOPAS-COPSOQ
+--   * Surveys personalizados
+--   * Motor estadístico Python
+--   * Exportación Power BI / CSV / Excel / SPSS
+--   * Reportes y seguimiento preventivo / BSC
+--
+-- Recomendado: PostgreSQL 15+
+-- ============================================================================
+
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- Requerido por `users.email CITEXT` más abajo; ausente en el SQL original
+-- (colmena_postgresql_schema.sql no la declaraba pese a usar el tipo).
+CREATE EXTENSION IF NOT EXISTS citext;
+
+CREATE SCHEMA IF NOT EXISTS colmena;
+SET search_path TO colmena, public;
+
+-- ============================================================================
+-- 0. FUNCIÓN GENÉRICA updated_at
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.updated_at := NOW();
+    RETURN NEW;
+END;
+$$;
+
+-- ============================================================================
+-- 1. IDENTIDAD Y ORGANIZACIONES
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS users (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    email               CITEXT,
+    username            VARCHAR(120),
+    password_hash       TEXT,
+    first_name          VARCHAR(150),
+    last_name           VARCHAR(150),
+    status              VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(email),
+    UNIQUE(username)
+);
+
+CREATE TABLE IF NOT EXISTS organizations (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    name                VARCHAR(255) NOT NULL,
+    legal_name          VARCHAR(255),
+    tax_id              VARCHAR(80),
+    organization_type   VARCHAR(80),
+    status              VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS organization_memberships (
+    organization_id     BIGINT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id             BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_code           VARCHAR(60) NOT NULL,
+    permissions         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (organization_id, user_id)
+);
+
+-- ============================================================================
+-- 2. PROYECTOS
+-- Un proyecto puede ser académico, CENSOPAS u otro tipo.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS projects (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    owner_user_id       BIGINT NOT NULL REFERENCES users(id),
+    organization_id     BIGINT REFERENCES organizations(id),
+    name                VARCHAR(255) NOT NULL,
+    project_type        VARCHAR(40) NOT NULL,
+    description         TEXT,
+    status              VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (project_type IN ('ACADEMIC','CENSOPAS','CUSTOM','RESEARCH'))
+);
+
+CREATE TABLE IF NOT EXISTS project_members (
+    project_id          BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id             BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_code           VARCHAR(60) NOT NULL,
+    permissions         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (project_id, user_id)
+);
+
+-- ============================================================================
+-- 3. INSTRUMENTOS Y VERSIONES
+-- Instrumento = definición metodológica reutilizable.
+-- Survey = formulario/aplicación concreta.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS instruments (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    owner_user_id       BIGINT REFERENCES users(id),
+    organization_id     BIGINT REFERENCES organizations(id),
+    code                VARCHAR(100),
+    name                VARCHAR(255) NOT NULL,
+    instrument_type     VARCHAR(80),
+    description         TEXT,
+    source_name         VARCHAR(255),
+    source_url          TEXT,
+    is_system           BOOLEAN NOT NULL DEFAULT FALSE,
+    status              VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_instruments_system_code
+ON instruments(code)
+WHERE code IS NOT NULL AND is_system = TRUE;
+
+CREATE TABLE IF NOT EXISTS instrument_versions (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    instrument_id       BIGINT NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
+    version_code        VARCHAR(80) NOT NULL,
+    version_name        VARCHAR(255),
+    edition             VARCHAR(120),
+    valid_from          DATE,
+    valid_to            DATE,
+    status              VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+    scoring_status      VARCHAR(40) NOT NULL DEFAULT 'NOT_CONFIGURED',
+    source_reference    TEXT,
+    config              JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(instrument_id, version_code)
+);
+
+-- ============================================================================
+-- 4. CATÁLOGOS DE RESPUESTA
+-- Permite reutilizar escalas y opciones.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS option_sets (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    instrument_version_id BIGINT REFERENCES instrument_versions(id) ON DELETE CASCADE,
+    owner_user_id       BIGINT REFERENCES users(id),
+    code                VARCHAR(100),
+    name                VARCHAR(255) NOT NULL,
+    description         TEXT,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS option_set_options (
+    id                  BIGSERIAL PRIMARY KEY,
+    option_set_id       BIGINT NOT NULL REFERENCES option_sets(id) ON DELETE CASCADE,
+    raw_code            VARCHAR(100) NOT NULL,
+    label               TEXT NOT NULL,
+    numeric_value       NUMERIC,
+    sort_order          INTEGER,
+    is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    UNIQUE(option_set_id, raw_code)
+);
+
+-- ============================================================================
+-- 5. PREGUNTAS
+-- instrument_version_id NULL = pregunta personalizada/libre.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS questions (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    instrument_version_id BIGINT REFERENCES instrument_versions(id) ON DELETE CASCADE,
+    created_by_user_id  BIGINT REFERENCES users(id),
+    option_set_id       BIGINT REFERENCES option_sets(id),
+    code                VARCHAR(100),
+    source_code         VARCHAR(100),
+    question_text       TEXT NOT NULL,
+    short_label         VARCHAR(255),
+    question_type       VARCHAR(50) NOT NULL,
+    category            VARCHAR(100),
+    is_scored           BOOLEAN NOT NULL DEFAULT FALSE,
+    is_required_default BOOLEAN NOT NULL DEFAULT FALSE,
+    sort_order          INTEGER,
+    validation_rules    JSONB NOT NULL DEFAULT '{}'::jsonb,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (question_type IN (
+        'SINGLE_CHOICE','MULTIPLE_CHOICE','LIKERT','NUMBER','TEXT',
+        'BOOLEAN','DATE','DATETIME','MATRIX','RANKING'
+    ))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_question_code_per_version
+ON questions(instrument_version_id, code)
+WHERE instrument_version_id IS NOT NULL AND code IS NOT NULL;
+
+-- ============================================================================
+-- 6. CONSTRUCTOS: dimensiones, subdimensiones, escalas, factores
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS constructs (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    instrument_version_id BIGINT NOT NULL REFERENCES instrument_versions(id) ON DELETE CASCADE,
+    parent_id           BIGINT REFERENCES constructs(id) ON DELETE CASCADE,
+    code                VARCHAR(80) NOT NULL,
+    name                VARCHAR(255) NOT NULL,
+    construct_type      VARCHAR(40) NOT NULL,
+    description         TEXT,
+    sort_order          INTEGER,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(instrument_version_id, code),
+    CHECK (construct_type IN ('DIMENSION','SUBDIMENSION','SCALE','FACTOR','INDEX'))
+);
+
+CREATE TABLE IF NOT EXISTS construct_items (
+    construct_id        BIGINT NOT NULL REFERENCES constructs(id) ON DELETE CASCADE,
+    question_id         BIGINT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    weight              NUMERIC NOT NULL DEFAULT 1,
+    item_role           VARCHAR(40) DEFAULT 'SCORED',
+    scoring_direction   VARCHAR(30),
+    sort_order          INTEGER,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    PRIMARY KEY (construct_id, question_id)
+);
+
+-- ============================================================================
+-- 7. REGLAS DE PUNTUACIÓN
+-- parameters puede describir reglas como reverse/direct/linear transform.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS scoring_rules (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    instrument_version_id BIGINT NOT NULL REFERENCES instrument_versions(id) ON DELETE CASCADE,
+    question_id         BIGINT REFERENCES questions(id) ON DELETE CASCADE,
+    construct_id        BIGINT REFERENCES constructs(id) ON DELETE CASCADE,
+    rule_code           VARCHAR(100),
+    rule_type           VARCHAR(60) NOT NULL,
+    parameters          JSONB NOT NULL DEFAULT '{}'::jsonb,
+    formula_expression  TEXT,
+    source_reference    TEXT,
+    rule_version        VARCHAR(80),
+    status              VARCHAR(40) NOT NULL DEFAULT 'DRAFT',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (question_id IS NOT NULL OR construct_id IS NOT NULL)
+);
+
+-- ============================================================================
+-- 8. BAREMOS
+-- No cargar cortes oficiales hasta contar con fuente autorizada.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS barems (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    instrument_version_id BIGINT NOT NULL REFERENCES instrument_versions(id) ON DELETE CASCADE,
+    name                VARCHAR(255) NOT NULL,
+    population_label    VARCHAR(255),
+    source_reference    TEXT,
+    barem_version       VARCHAR(100),
+    status              VARCHAR(40) NOT NULL DEFAULT 'DRAFT',
+    valid_from          DATE,
+    valid_to            DATE,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS barem_cutoffs (
+    id                  BIGSERIAL PRIMARY KEY,
+    barem_id            BIGINT NOT NULL REFERENCES barems(id) ON DELETE CASCADE,
+    construct_id        BIGINT NOT NULL REFERENCES constructs(id) ON DELETE CASCADE,
+    cut_1               NUMERIC,
+    cut_2               NUMERIC,
+    direction           VARCHAR(30),
+    favorable_label     VARCHAR(100) DEFAULT 'FAVORABLE',
+    intermediate_label  VARCHAR(100) DEFAULT 'INTERMEDIO',
+    unfavorable_label   VARCHAR(100) DEFAULT 'DESFAVORABLE',
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    UNIQUE(barem_id, construct_id)
+);
+
+-- ============================================================================
+-- 9. SURVEYS
+-- Un survey puede ser custom o provenir de una versión de instrumento.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS surveys (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    project_id          BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    instrument_version_id BIGINT REFERENCES instrument_versions(id),
+    created_by_user_id  BIGINT NOT NULL REFERENCES users(id),
+    name                VARCHAR(255) NOT NULL,
+    description         TEXT,
+    survey_type         VARCHAR(40) NOT NULL DEFAULT 'CUSTOM',
+    status              VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+    settings            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (survey_type IN ('CUSTOM','ACADEMIC','CENSOPAS','INSTRUMENT'))
+);
+
+CREATE TABLE IF NOT EXISTS survey_sections (
+    id                  BIGSERIAL PRIMARY KEY,
+    survey_id           BIGINT NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+    title               VARCHAR(255),
+    description         TEXT,
+    sort_order          INTEGER NOT NULL DEFAULT 0,
+    settings            JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS survey_questions (
+    survey_id           BIGINT NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+    question_id         BIGINT NOT NULL REFERENCES questions(id),
+    section_id          BIGINT REFERENCES survey_sections(id) ON DELETE SET NULL,
+    sort_order          INTEGER NOT NULL,
+    is_required         BOOLEAN,
+    display_text_override TEXT,
+    settings            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    PRIMARY KEY (survey_id, question_id)
+);
+
+-- ============================================================================
+-- 10. ESTUDIOS / APLICACIONES
+-- Study = aplicación concreta de un survey/instrumento.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS studies (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    project_id          BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    survey_id           BIGINT NOT NULL REFERENCES surveys(id),
+    instrument_version_id BIGINT REFERENCES instrument_versions(id),
+    barem_id            BIGINT REFERENCES barems(id),
+    name                VARCHAR(255) NOT NULL,
+    study_type          VARCHAR(40) NOT NULL,
+    status              VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+    start_at            TIMESTAMPTZ,
+    end_at              TIMESTAMPTZ,
+    min_publishable_n   INTEGER NOT NULL DEFAULT 5,
+    algorithm_version   VARCHAR(100),
+    settings            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (study_type IN ('ACADEMIC','CENSOPAS','CUSTOM','RESEARCH')),
+    CHECK (min_publishable_n >= 1)
+);
+
+-- Snapshot inmutable/auditable de instrumento, baremo y configuración.
+CREATE TABLE IF NOT EXISTS study_snapshots (
+    id                  BIGSERIAL PRIMARY KEY,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    snapshot_type       VARCHAR(50) NOT NULL,
+    snapshot_data       JSONB NOT NULL,
+    sha256_hash         VARCHAR(64) NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(study_id, snapshot_type, sha256_hash)
+);
+
+-- ============================================================================
+-- 11. UNIDADES DE ANÁLISIS
+-- Área, puesto, turno, sede, contrato, etc.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS study_unit_types (
+    id                  BIGSERIAL PRIMARY KEY,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    code                VARCHAR(80) NOT NULL,
+    name                VARCHAR(255) NOT NULL,
+    is_sensitive        BOOLEAN NOT NULL DEFAULT FALSE,
+    sort_order          INTEGER,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    UNIQUE(study_id, code)
+);
+
+CREATE TABLE IF NOT EXISTS study_units (
+    id                  BIGSERIAL PRIMARY KEY,
+    study_unit_type_id  BIGINT NOT NULL REFERENCES study_unit_types(id) ON DELETE CASCADE,
+    code                VARCHAR(100),
+    name                VARCHAR(255) NOT NULL,
+    parent_id           BIGINT REFERENCES study_units(id) ON DELETE SET NULL,
+    is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- ============================================================================
+-- 12. PARTICIPANTES E INVITACIONES
+-- Importante para CENSOPAS:
+--   participants/invitations autentican y controlan participación.
+--   response_sessions NO lleva participant_id.
+--   El backend debe emitir un token anónimo nuevo y no conservar el mapeo
+--   directo participante -> contenido de respuesta.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS participants (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    external_id         VARCHAR(255),
+    first_name          VARCHAR(150),
+    last_name           VARCHAR(150),
+    email               VARCHAR(255),
+    phone               VARCHAR(100),
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS study_invitations (
+    id                  BIGSERIAL PRIMARY KEY,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    participant_id      BIGINT REFERENCES participants(id) ON DELETE CASCADE,
+    access_token_hash   VARCHAR(128) NOT NULL,
+    status              VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    sent_at             TIMESTAMPTZ,
+    consumed_at         TIMESTAMPTZ,
+    expires_at          TIMESTAMPTZ,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    UNIQUE(study_id, access_token_hash)
+);
+
+-- ============================================================================
+-- 13. SESIONES DE RESPUESTA ANÓNIMAS
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS response_sessions (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    anonymous_token     UUID NOT NULL DEFAULT gen_random_uuid(),
+    status              VARCHAR(30) NOT NULL DEFAULT 'STARTED',
+    validation_status   VARCHAR(30) DEFAULT 'PENDING',
+    started_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at        TIMESTAMPTZ,
+    duration_seconds    INTEGER,
+    completion_pct      NUMERIC(5,2),
+    exclusion_reason    TEXT,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    UNIQUE(study_id, anonymous_token),
+    CHECK (completion_pct IS NULL OR (completion_pct >= 0 AND completion_pct <= 100))
+);
+
+-- Relación anónima con unidades de análisis.
+CREATE TABLE IF NOT EXISTS response_session_units (
+    response_session_id BIGINT NOT NULL REFERENCES response_sessions(id) ON DELETE CASCADE,
+    study_unit_id       BIGINT NOT NULL REFERENCES study_units(id) ON DELETE CASCADE,
+    PRIMARY KEY (response_session_id, study_unit_id)
+);
+
+-- ============================================================================
+-- 14. RESPUESTAS
+-- Formato largo: una fila por sesión + pregunta.
+-- raw_code conserva exactamente lo recibido.
+-- Campos tipados permiten análisis eficiente.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS responses (
+    id                  BIGSERIAL PRIMARY KEY,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    response_session_id BIGINT NOT NULL REFERENCES response_sessions(id) ON DELETE CASCADE,
+    question_id         BIGINT NOT NULL REFERENCES questions(id),
+    option_id           BIGINT REFERENCES option_set_options(id),
+    raw_code            VARCHAR(150),
+    numeric_value       NUMERIC,
+    text_value          TEXT,
+    boolean_value       BOOLEAN,
+    date_value          DATE,
+    datetime_value      TIMESTAMPTZ,
+    value_jsonb         JSONB,
+    is_missing          BOOLEAN NOT NULL DEFAULT FALSE,
+    answered_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    UNIQUE(response_session_id, question_id)
+);
+
+-- Para preguntas MULTIPLE_CHOICE.
+CREATE TABLE IF NOT EXISTS response_selected_options (
+    response_id         BIGINT NOT NULL REFERENCES responses(id) ON DELETE CASCADE,
+    option_id           BIGINT NOT NULL REFERENCES option_set_options(id),
+    PRIMARY KEY (response_id, option_id)
+);
+
+-- ============================================================================
+-- 15. VALORES DERIVADOS / SCORING POR ÍTEM
+-- Nunca sustituye raw_code.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS response_scores (
+    id                  BIGSERIAL PRIMARY KEY,
+    response_id         BIGINT NOT NULL REFERENCES responses(id) ON DELETE CASCADE,
+    scoring_rule_id     BIGINT REFERENCES scoring_rules(id),
+    risk_value          NUMERIC,
+    score_0_100         NUMERIC,
+    algorithm_version   VARCHAR(100),
+    calculated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- ============================================================================
+-- 16. MOTOR ESTADÍSTICO / MÉTODOS
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS analysis_methods (
+    id                  BIGSERIAL PRIMARY KEY,
+    code                VARCHAR(100) NOT NULL UNIQUE,
+    name                VARCHAR(255) NOT NULL,
+    category            VARCHAR(100),
+    engine              VARCHAR(50) NOT NULL DEFAULT 'PYTHON',
+    enabled             BOOLEAN NOT NULL DEFAULT TRUE,
+    config              JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS analysis_runs (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    analysis_method_id  BIGINT REFERENCES analysis_methods(id),
+    requested_by_user_id BIGINT REFERENCES users(id),
+    analysis_type       VARCHAR(100) NOT NULL,
+    engine              VARCHAR(50) NOT NULL DEFAULT 'PYTHON',
+    engine_version      VARCHAR(100),
+    algorithm_version   VARCHAR(100),
+    parameters          JSONB NOT NULL DEFAULT '{}'::jsonb,
+    input_hash          VARCHAR(64),
+    status              VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    started_at          TIMESTAMPTZ,
+    completed_at        TIMESTAMPTZ,
+    error_message       TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Resultado genérico para descriptiva, inferencia, multivariada, etc.
+CREATE TABLE IF NOT EXISTS analysis_results (
+    id                  BIGSERIAL PRIMARY KEY,
+    analysis_run_id     BIGINT NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
+    result_code         VARCHAR(120),
+    result_type         VARCHAR(100) NOT NULL,
+    construct_id        BIGINT REFERENCES constructs(id),
+    question_id         BIGINT REFERENCES questions(id),
+    unit_type_id        BIGINT REFERENCES study_unit_types(id),
+    unit_id             BIGINT REFERENCES study_units(id),
+    n_valid             INTEGER,
+    numeric_value       NUMERIC,
+    ci_lower            NUMERIC,
+    ci_upper            NUMERIC,
+    statistic_value     NUMERIC,
+    degrees_freedom     NUMERIC,
+    p_value             NUMERIC,
+    adjusted_p_value    NUMERIC,
+    effect_size         NUMERIC,
+    effect_label        VARCHAR(80),
+    text_value          TEXT,
+    result_data         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================================
+-- 17. RESULTADOS ESTANDARIZADOS POR CONSTRUCTO
+-- Útil para CENSOPAS y dashboards.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS construct_results (
+    id                  BIGSERIAL PRIMARY KEY,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    analysis_run_id     BIGINT REFERENCES analysis_runs(id) ON DELETE SET NULL,
+    construct_id        BIGINT NOT NULL REFERENCES constructs(id),
+    unit_type_id        BIGINT REFERENCES study_unit_types(id),
+    unit_id             BIGINT REFERENCES study_units(id),
+    n_valid             INTEGER NOT NULL DEFAULT 0,
+    favorable_n         INTEGER NOT NULL DEFAULT 0,
+    intermediate_n      INTEGER NOT NULL DEFAULT 0,
+    unfavorable_n       INTEGER NOT NULL DEFAULT 0,
+    favorable_pct       NUMERIC(7,4),
+    intermediate_pct    NUMERIC(7,4),
+    unfavorable_pct     NUMERIC(7,4),
+    construct_score     NUMERIC,
+    classification      VARCHAR(80),
+    classification_status VARCHAR(40) NOT NULL DEFAULT 'PROVISIONAL',
+    barem_id            BIGINT REFERENCES barems(id),
+    algorithm_version   VARCHAR(100),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    CHECK (n_valid >= 0),
+    CHECK (favorable_n >= 0),
+    CHECK (intermediate_n >= 0),
+    CHECK (unfavorable_n >= 0)
+);
+
+-- Evita duplicados del resultado global para el mismo constructo/run.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_construct_result_scope
+ON construct_results(
+    study_id,
+    COALESCE(analysis_run_id, 0),
+    construct_id,
+    COALESCE(unit_type_id, 0),
+    COALESCE(unit_id, 0)
+);
+
+-- ============================================================================
+-- 18. REPORTES
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS report_templates (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    code                VARCHAR(100) UNIQUE,
+    name                VARCHAR(255) NOT NULL,
+    report_type         VARCHAR(80) NOT NULL,
+    instrument_version_id BIGINT REFERENCES instrument_versions(id),
+    template_config     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_system           BOOLEAN NOT NULL DEFAULT FALSE,
+    status              VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS report_runs (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    report_template_id  BIGINT REFERENCES report_templates(id),
+    requested_by_user_id BIGINT REFERENCES users(id),
+    analysis_run_id     BIGINT REFERENCES analysis_runs(id),
+    status              VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    output_format       VARCHAR(30) NOT NULL DEFAULT 'PDF',
+    storage_path        TEXT,
+    data_hash           VARCHAR(64),
+    generated_at        TIMESTAMPTZ,
+    error_message       TEXT,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================================
+-- 19. EXPORTACIONES
+-- CSV, XLSX, SPSS, Power BI, JSON.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS exports (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    requested_by_user_id BIGINT REFERENCES users(id),
+    export_type         VARCHAR(40) NOT NULL,
+    dataset_shape       VARCHAR(20) NOT NULL DEFAULT 'LONG',
+    status              VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    filters             JSONB NOT NULL DEFAULT '{}'::jsonb,
+    storage_path        TEXT,
+    row_count           BIGINT,
+    generated_at        TIMESTAMPTZ,
+    error_message       TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (export_type IN ('CSV','XLSX','SPSS','POWERBI','JSON','PARQUET')),
+    CHECK (dataset_shape IN ('LONG','WIDE','AGGREGATED'))
+);
+
+-- ============================================================================
+-- 20. PLAN PREVENTIVO / BALANCED SCORECARD
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS action_plans (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    name                VARCHAR(255) NOT NULL,
+    status              VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+    approved_by_user_id BIGINT REFERENCES users(id),
+    approved_at         TIMESTAMPTZ,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS action_plan_items (
+    id                  BIGSERIAL PRIMARY KEY,
+    action_plan_id      BIGINT NOT NULL REFERENCES action_plans(id) ON DELETE CASCADE,
+    construct_id        BIGINT REFERENCES constructs(id),
+    title               VARCHAR(255) NOT NULL,
+    finding             TEXT,
+    action_description  TEXT NOT NULL,
+    responsible_user_id BIGINT REFERENCES users(id),
+    responsible_label   VARCHAR(255),
+    priority            INTEGER,
+    due_date            DATE,
+    status              VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kpis (
+    id                  BIGSERIAL PRIMARY KEY,
+    action_plan_item_id BIGINT REFERENCES action_plan_items(id) ON DELETE CASCADE,
+    study_id            BIGINT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    code                VARCHAR(100),
+    name                VARCHAR(255) NOT NULL,
+    description         TEXT,
+    formula             TEXT,
+    unit                VARCHAR(80),
+    baseline_value      NUMERIC,
+    target_value        NUMERIC,
+    frequency           VARCHAR(80),
+    owner_user_id       BIGINT REFERENCES users(id),
+    status              VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS kpi_measurements (
+    id                  BIGSERIAL PRIMARY KEY,
+    kpi_id              BIGINT NOT NULL REFERENCES kpis(id) ON DELETE CASCADE,
+    measured_at         TIMESTAMPTZ NOT NULL,
+    numeric_value       NUMERIC,
+    text_value          TEXT,
+    status              VARCHAR(30),
+    source_reference    TEXT,
+    metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================================
+-- 21. AUDITORÍA
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id                  BIGSERIAL PRIMARY KEY,
+    public_id           UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    user_id             BIGINT REFERENCES users(id),
+    organization_id     BIGINT REFERENCES organizations(id),
+    project_id          BIGINT REFERENCES projects(id),
+    study_id            BIGINT REFERENCES studies(id),
+    action              VARCHAR(120) NOT NULL,
+    entity_type         VARCHAR(120),
+    entity_id           BIGINT,
+    before_data         JSONB,
+    after_data          JSONB,
+    ip_address          INET,
+    user_agent          TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================================
+-- 22. ÍNDICES
+-- ============================================================================
+
+CREATE INDEX IF NOT EXISTS idx_projects_owner
+ON projects(owner_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_projects_org
+ON projects(organization_id);
+
+CREATE INDEX IF NOT EXISTS idx_questions_version
+ON questions(instrument_version_id);
+
+CREATE INDEX IF NOT EXISTS idx_constructs_version
+ON constructs(instrument_version_id);
+
+CREATE INDEX IF NOT EXISTS idx_construct_items_question
+ON construct_items(question_id);
+
+CREATE INDEX IF NOT EXISTS idx_surveys_project
+ON surveys(project_id);
+
+CREATE INDEX IF NOT EXISTS idx_studies_project
+ON studies(project_id);
+
+CREATE INDEX IF NOT EXISTS idx_studies_survey
+ON studies(survey_id);
+
+CREATE INDEX IF NOT EXISTS idx_participants_study
+ON participants(study_id);
+
+CREATE INDEX IF NOT EXISTS idx_response_sessions_study
+ON response_sessions(study_id);
+
+CREATE INDEX IF NOT EXISTS idx_response_sessions_status
+ON response_sessions(study_id, status, validation_status);
+
+CREATE INDEX IF NOT EXISTS idx_responses_study
+ON responses(study_id);
+
+CREATE INDEX IF NOT EXISTS idx_responses_session
+ON responses(response_session_id);
+
+CREATE INDEX IF NOT EXISTS idx_responses_question
+ON responses(question_id);
+
+CREATE INDEX IF NOT EXISTS idx_responses_study_question
+ON responses(study_id, question_id);
+
+CREATE INDEX IF NOT EXISTS idx_response_scores_response
+ON response_scores(response_id);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_runs_study
+ON analysis_runs(study_id);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_results_run
+ON analysis_results(analysis_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_results_construct
+ON analysis_results(construct_id);
+
+CREATE INDEX IF NOT EXISTS idx_construct_results_study
+ON construct_results(study_id);
+
+CREATE INDEX IF NOT EXISTS idx_construct_results_construct
+ON construct_results(construct_id);
+
+CREATE INDEX IF NOT EXISTS idx_report_runs_study
+ON report_runs(study_id);
+
+CREATE INDEX IF NOT EXISTS idx_exports_study
+ON exports(study_id);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_study
+ON audit_logs(study_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
+ON audit_logs(entity_type, entity_id);
+
+-- Índices GIN sólo para metadata/config donde realmente se filtra por JSONB.
+CREATE INDEX IF NOT EXISTS idx_projects_metadata_gin
+ON projects USING GIN (metadata);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_results_data_gin
+ON analysis_results USING GIN (result_data);
+
+-- ============================================================================
+-- 23. TRIGGERS updated_at
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS trg_users_updated_at ON users;
+CREATE TRIGGER trg_users_updated_at
+BEFORE UPDATE ON users
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_organizations_updated_at ON organizations;
+CREATE TRIGGER trg_organizations_updated_at
+BEFORE UPDATE ON organizations
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_projects_updated_at ON projects;
+CREATE TRIGGER trg_projects_updated_at
+BEFORE UPDATE ON projects
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_instruments_updated_at ON instruments;
+CREATE TRIGGER trg_instruments_updated_at
+BEFORE UPDATE ON instruments
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_instrument_versions_updated_at ON instrument_versions;
+CREATE TRIGGER trg_instrument_versions_updated_at
+BEFORE UPDATE ON instrument_versions
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_questions_updated_at ON questions;
+CREATE TRIGGER trg_questions_updated_at
+BEFORE UPDATE ON questions
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_constructs_updated_at ON constructs;
+CREATE TRIGGER trg_constructs_updated_at
+BEFORE UPDATE ON constructs
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_scoring_rules_updated_at ON scoring_rules;
+CREATE TRIGGER trg_scoring_rules_updated_at
+BEFORE UPDATE ON scoring_rules
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_barems_updated_at ON barems;
+CREATE TRIGGER trg_barems_updated_at
+BEFORE UPDATE ON barems
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_surveys_updated_at ON surveys;
+CREATE TRIGGER trg_surveys_updated_at
+BEFORE UPDATE ON surveys
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_studies_updated_at ON studies;
+CREATE TRIGGER trg_studies_updated_at
+BEFORE UPDATE ON studies
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_report_templates_updated_at ON report_templates;
+CREATE TRIGGER trg_report_templates_updated_at
+BEFORE UPDATE ON report_templates
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_action_plans_updated_at ON action_plans;
+CREATE TRIGGER trg_action_plans_updated_at
+BEFORE UPDATE ON action_plans
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_action_plan_items_updated_at ON action_plan_items;
+CREATE TRIGGER trg_action_plan_items_updated_at
+BEFORE UPDATE ON action_plan_items
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ============================================================================
+-- 24. VISTAS PARA ANALÍTICA / POWER BI
+-- ============================================================================
+
+CREATE OR REPLACE VIEW vw_response_long AS
+SELECT
+    r.id                         AS response_id,
+    r.study_id,
+    rs.public_id                 AS respondent_public_id,
+    rs.status                    AS response_status,
+    rs.validation_status,
+    q.id                         AS question_id,
+    q.code                       AS question_code,
+    q.source_code,
+    q.short_label,
+    q.question_text,
+    q.question_type,
+    q.category,
+    r.option_id,
+    oso.raw_code                 AS selected_option_code,
+    oso.label                    AS selected_option_label,
+    r.raw_code,
+    r.numeric_value,
+    r.text_value,
+    r.boolean_value,
+    r.date_value,
+    r.datetime_value,
+    r.is_missing,
+    r.answered_at
+FROM responses r
+JOIN response_sessions rs
+  ON rs.id = r.response_session_id
+JOIN questions q
+  ON q.id = r.question_id
+LEFT JOIN option_set_options oso
+  ON oso.id = r.option_id;
+
+CREATE OR REPLACE VIEW vw_study_participation AS
+SELECT
+    s.id AS study_id,
+    s.public_id AS study_public_id,
+    s.name AS study_name,
+    COUNT(DISTINCT p.id) AS invited_participants,
+    COUNT(DISTINCT rs.id) FILTER (WHERE rs.status IN ('COMPLETED','VALID')) AS completed_sessions,
+    COUNT(DISTINCT rs.id) FILTER (WHERE rs.validation_status = 'VALID') AS valid_sessions,
+    COUNT(DISTINCT rs.id) FILTER (WHERE rs.validation_status = 'EXCLUDED') AS excluded_sessions
+FROM studies s
+LEFT JOIN participants p ON p.study_id = s.id
+LEFT JOIN response_sessions rs ON rs.study_id = s.id
+GROUP BY s.id, s.public_id, s.name;
+
+CREATE OR REPLACE VIEW vw_construct_results AS
+SELECT
+    cr.id,
+    cr.study_id,
+    s.public_id AS study_public_id,
+    s.name AS study_name,
+    c.code AS construct_code,
+    c.name AS construct_name,
+    c.construct_type,
+    sut.code AS unit_type_code,
+    su.code AS unit_code,
+    su.name AS unit_name,
+    cr.n_valid,
+    cr.favorable_n,
+    cr.intermediate_n,
+    cr.unfavorable_n,
+    cr.favorable_pct,
+    cr.intermediate_pct,
+    cr.unfavorable_pct,
+    cr.construct_score,
+    cr.classification,
+    cr.classification_status,
+    cr.algorithm_version,
+    cr.created_at
+FROM construct_results cr
+JOIN studies s ON s.id = cr.study_id
+JOIN constructs c ON c.id = cr.construct_id
+LEFT JOIN study_unit_types sut ON sut.id = cr.unit_type_id
+LEFT JOIN study_units su ON su.id = cr.unit_id;
+
+-- ============================================================================
+-- 25. CATÁLOGO BASE DE MÉTODOS ESTADÍSTICOS
+-- ============================================================================
+
+INSERT INTO analysis_methods (code, name, category, engine)
+VALUES
+    ('DESCRIPTIVE',          'Estadística descriptiva',              'DESCRIPTIVA',   'PYTHON'),
+    ('FREQUENCIES',          'Frecuencias y porcentajes',            'DESCRIPTIVA',   'PYTHON'),
+    ('CHI_SQUARE',           'Chi-cuadrado de Pearson',              'INFERENCIAL',   'PYTHON'),
+    ('MANN_WHITNEY',         'U de Mann-Whitney',                    'INFERENCIAL',   'PYTHON'),
+    ('KRUSKAL_WALLIS',       'Prueba de Kruskal-Wallis',             'INFERENCIAL',   'PYTHON'),
+    ('SPEARMAN',             'Correlación de Spearman',              'INFERENCIAL',   'PYTHON'),
+    ('BENJAMINI_HOCHBERG',   'Corrección de Benjamini-Hochberg',    'INFERENCIAL',   'PYTHON'),
+    ('CRONBACH_ALPHA',       'Alfa de Cronbach',                     'PSICOMÉTRICA',  'PYTHON'),
+    ('MCDONALD_OMEGA',       'Omega de McDonald',                    'PSICOMÉTRICA',  'PYTHON'),
+    ('LOGISTIC_REGRESSION',  'Regresión logística',                  'MULTIVARIANTE', 'PYTHON'),
+    ('KMEANS',               'Agrupamiento K-medias',                'MULTIVARIANTE', 'PYTHON'),
+    ('CENSOPAS_SCORING',     'Puntuación CENSOPAS-COPSOQ',          'PUNTUACIÓN',    'PYTHON')
+ON CONFLICT (code) DO NOTHING;
+
+-- ============================================================================
+-- 26. SEMILLA DE CENSOPAS-COPSOQ
+-- Se crean únicamente el instrumento y versiones.
+-- NO se cargan cortes/baremos oficiales.
+-- ============================================================================
+
+INSERT INTO instruments (
+    code, name, instrument_type, description, source_name,
+    is_system, status, metadata
+)
+VALUES (
+    'CENSOPAS_COPSOQ',
+    'CENSOPAS-COPSOQ',
+    'PSYCHOSOCIAL',
+    'Instrumento CENSOPAS-COPSOQ para evaluación colectiva de exposición psicosocial.',
+    'CENSOPAS/INS',
+    TRUE,
+    'ACTIVE',
+    '{"official_equivalence_enabled": false}'::jsonb
+)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO instrument_versions (
+    instrument_id, version_code, version_name, edition,
+    status, scoring_status, source_reference, config
+)
+SELECT
+    i.id,
+    'SHORT',
+    'Versión corta',
+    'Manual 2025',
+    'TEST',
+    'PROVISIONAL',
+    'Manual técnico CENSOPAS-COPSOQ para Colmena',
+    '{"expected_total_questions":42,"psychosocial_items":31,"dimensions":6,"subdimensions_reportable":false}'::jsonb
+FROM instruments i
+WHERE i.code = 'CENSOPAS_COPSOQ'
+ON CONFLICT (instrument_id, version_code) DO NOTHING;
+
+INSERT INTO instrument_versions (
+    instrument_id, version_code, version_name, edition,
+    status, scoring_status, source_reference, config
+)
+SELECT
+    i.id,
+    'MEDIUM',
+    'Versión media',
+    'Manual 2025',
+    'TEST',
+    'PROVISIONAL',
+    'Manual técnico CENSOPAS-COPSOQ para Colmena',
+    '{"expected_total_questions":112,"psychosocial_items":69,"dimensions":6,"subdimensions":20,"subdimensions_reportable":true}'::jsonb
+FROM instruments i
+WHERE i.code = 'CENSOPAS_COPSOQ'
+ON CONFLICT (instrument_id, version_code) DO NOTHING;
+
+-- ============================================================================
+-- 27. COMENTARIOS DE ARQUITECTURA / ESCALABILIDAD
+-- ============================================================================
+--
+-- 1) responses es una tabla "long format" y puede llegar a decenas o cientos
+--    de millones de filas si Colmena crece. PostgreSQL puede manejarlo con
+--    buenos índices, consultas agregadas y jobs.
+--
+-- 2) No particionar de entrada salvo que el volumen real lo justifique.
+--    Cuando sea necesario, considerar partición HASH por study_id o RANGE
+--    por fecha.
+--
+-- 3) Python no debe recalcular análisis completos en cada respuesta.
+--    Guardar respuestas -> cerrar/actualizar estudio -> analysis_runs -> resultados.
+--
+-- 4) Para Power BI usar vistas/vistas materializadas o datasets exportados,
+--    no exponer todo el esquema operacional.
+--
+-- 5) Para SPSS/Excel/CSV en formato ancho (P1,P2,P3...), el pivot debe hacerse
+--    en el motor de exportación Python. No duplicar físicamente respuestas.
+--
+-- 6) En CENSOPAS:
+--    - nunca sobrescribir raw_code;
+--    - separar autenticación/participación del contenido de respuesta;
+--    - suprimir celdas con n < study.min_publishable_n;
+--    - no emitir clasificación "oficial" si faltan polaridad verificada,
+--      algoritmo autorizado, baremo/cortes vigentes y concordancia.
+--
+-- ============================================================================

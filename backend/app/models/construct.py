@@ -1,0 +1,59 @@
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base, PublicIdMixin, TimestampMixin
+from app.models.types import BigIntPK, JSONVariant
+
+CONSTRUCT_TYPES = ("VARIABLE", "DIMENSION", "SUBDIMENSION", "SCALE", "FACTOR", "INDEX")
+
+
+class Construct(Base, PublicIdMixin, TimestampMixin):
+    __tablename__ = "constructs"
+    __table_args__ = (
+        UniqueConstraint("instrument_version_id", "code"),
+        CheckConstraint(f"construct_type IN {CONSTRUCT_TYPES}", name="ck_constructs_construct_type"),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True)
+    instrument_version_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("instrument_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("constructs.id", ondelete="CASCADE")
+    )
+    code: Mapped[str] = mapped_column(String(80), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    construct_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int | None] = mapped_column(Integer)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
+    )
+
+    instrument_version = relationship("InstrumentVersion", back_populates="constructs")
+    parent: Mapped["Construct | None"] = relationship(remote_side="Construct.id", back_populates="children")
+    children: Mapped[list["Construct"]] = relationship(back_populates="parent")
+    item_links: Mapped[list["ConstructItem"]] = relationship(
+        back_populates="construct", cascade="all, delete-orphan"
+    )
+
+
+class ConstructItem(Base):
+    __tablename__ = "construct_items"
+
+    construct_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("constructs.id", ondelete="CASCADE"), primary_key=True
+    )
+    question_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True
+    )
+    weight: Mapped[float] = mapped_column(Numeric, nullable=False, default=1)
+    item_role: Mapped[str | None] = mapped_column(String(40), default="SCORED")
+    scoring_direction: Mapped[str | None] = mapped_column(String(30))
+    sort_order: Mapped[int | None] = mapped_column(Integer)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
+    )
+
+    construct: Mapped[Construct] = relationship(back_populates="item_links")
+    question = relationship("Question", back_populates="construct_links")

@@ -1,0 +1,207 @@
+import datetime as dt
+import uuid
+from datetime import datetime
+
+from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base, TimestampMixin
+from app.models.types import BigIntPK, JSONVariant
+
+
+class ResponseScore(Base):
+    """Valor derivado por ítem (harness §15 tabla, §27). Nunca sustituye `raw_code`."""
+
+    __tablename__ = "response_scores"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True)
+    response_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("responses.id", ondelete="CASCADE"), nullable=False
+    )
+    scoring_rule_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("scoring_rules.id"))
+    risk_value: Mapped[float | None] = mapped_column(Numeric)
+    score_0_100: Mapped[float | None] = mapped_column(Numeric)
+    algorithm_version: Mapped[str | None] = mapped_column(String(100))
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
+    )
+
+
+class Barem(Base, TimestampMixin):
+    __tablename__ = "barems"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True)
+    public_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
+    )
+    instrument_version_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("instrument_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    population_label: Mapped[str | None] = mapped_column(String(255))
+    source_reference: Mapped[str | None] = mapped_column(Text)
+    barem_version: Mapped[str | None] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="DRAFT")
+    valid_from: Mapped[dt.date | None] = mapped_column(Date)
+    valid_to: Mapped[dt.date | None] = mapped_column(Date)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
+    )
+
+    cutoffs: Mapped[list["BaremCutoff"]] = relationship(
+        back_populates="barem", cascade="all, delete-orphan"
+    )
+    bands: Mapped[list["BaremBand"]] = relationship(
+        back_populates="barem",
+        cascade="all, delete-orphan",
+        order_by="BaremBand.severity_order",
+    )
+
+
+class BaremCutoff(Base):
+    __tablename__ = "barem_cutoffs"
+    __table_args__ = (UniqueConstraint("barem_id", "construct_id"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True)
+    barem_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("barems.id", ondelete="CASCADE"), nullable=False
+    )
+    construct_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("constructs.id", ondelete="CASCADE"), nullable=False
+    )
+    cut_1: Mapped[float | None] = mapped_column(Numeric)
+    cut_2: Mapped[float | None] = mapped_column(Numeric)
+    direction: Mapped[str | None] = mapped_column(String(30))
+    favorable_label: Mapped[str] = mapped_column(String(100), default="FAVORABLE")
+    intermediate_label: Mapped[str] = mapped_column(String(100), default="INTERMEDIATE")
+    unfavorable_label: Mapped[str] = mapped_column(String(100), default="UNFAVORABLE")
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
+    )
+
+    barem: Mapped[Barem] = relationship(back_populates="cutoffs")
+
+
+class BaremBand(Base):
+    """Nivel interpretable de un baremo.
+
+    A diferencia de ``barem_cutoffs``, admite cualquier cantidad de niveles y
+    conserva la etiqueta, interpretación y color definidos por el investigador.
+    Los límites se expresan en la métrica 0..100 que produce el motor de scoring.
+    """
+
+    __tablename__ = "barem_bands"
+    __table_args__ = (
+        UniqueConstraint("barem_id", "construct_id", "severity_order"),
+        CheckConstraint("min_value <= max_value", name="ck_barem_bands_range"),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True)
+    barem_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("barems.id", ondelete="CASCADE"), nullable=False
+    )
+    construct_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("constructs.id", ondelete="CASCADE"), nullable=False
+    )
+    code: Mapped[str] = mapped_column(String(80), nullable=False)
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    min_value: Mapped[float] = mapped_column(Numeric, nullable=False)
+    max_value: Mapped[float] = mapped_column(Numeric, nullable=False)
+    severity_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    interpretation: Mapped[str | None] = mapped_column(Text)
+    color_hint: Mapped[str | None] = mapped_column(String(30))
+    classification_code: Mapped[str | None] = mapped_column(String(80))
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
+    )
+
+    barem: Mapped[Barem] = relationship(back_populates="bands")
+    construct = relationship("Construct")
+
+
+class ConstructScore(Base):
+    """Puntuación inmutable de un participante anónimo por constructo y corrida."""
+
+    __tablename__ = "construct_scores"
+    __table_args__ = (
+        UniqueConstraint("analysis_run_id", "response_session_id", "construct_id"),
+        CheckConstraint("completion_pct >= 0 AND completion_pct <= 100", name="ck_construct_scores_completion"),
+        Index("ix_construct_scores_study_construct", "study_id", "construct_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True)
+    study_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("studies.id", ondelete="CASCADE"), nullable=False
+    )
+    analysis_run_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    response_session_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("response_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    construct_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("constructs.id", ondelete="CASCADE"), nullable=False
+    )
+    barem_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("barems.id"))
+    band_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("barem_bands.id"))
+    n_answered: Mapped[int] = mapped_column(Integer, nullable=False)
+    n_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    completion_pct: Mapped[float] = mapped_column(Numeric(7, 4), nullable=False)
+    raw_score: Mapped[float | None] = mapped_column(Numeric)
+    score_0_100: Mapped[float | None] = mapped_column(Numeric)
+    classification: Mapped[str | None] = mapped_column(String(120))
+    algorithm_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
+    )
+
+    construct = relationship("Construct")
+    band = relationship("BaremBand")
+
+
+class ConstructResult(Base):
+    __tablename__ = "construct_results"
+    __table_args__ = (
+        CheckConstraint("n_valid >= 0", name="ck_construct_results_n_valid"),
+        CheckConstraint("favorable_n >= 0", name="ck_construct_results_favorable_n"),
+        CheckConstraint("intermediate_n >= 0", name="ck_construct_results_intermediate_n"),
+        CheckConstraint("unfavorable_n >= 0", name="ck_construct_results_unfavorable_n"),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True)
+    study_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("studies.id", ondelete="CASCADE"), nullable=False
+    )
+    analysis_run_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("analysis_runs.id", ondelete="SET NULL")
+    )
+    construct_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("constructs.id"), nullable=False)
+    unit_type_id: Mapped[int | None] = mapped_column(BigInteger)
+    unit_id: Mapped[int | None] = mapped_column(BigInteger)
+    n_valid: Mapped[int] = mapped_column(nullable=False, default=0)
+    favorable_n: Mapped[int] = mapped_column(nullable=False, default=0)
+    intermediate_n: Mapped[int] = mapped_column(nullable=False, default=0)
+    unfavorable_n: Mapped[int] = mapped_column(nullable=False, default=0)
+    favorable_pct: Mapped[float | None] = mapped_column(Numeric(7, 4))
+    intermediate_pct: Mapped[float | None] = mapped_column(Numeric(7, 4))
+    unfavorable_pct: Mapped[float | None] = mapped_column(Numeric(7, 4))
+    construct_score: Mapped[float | None] = mapped_column(Numeric)
+    classification: Mapped[str | None] = mapped_column(String(80))
+    classification_status: Mapped[str] = mapped_column(String(40), nullable=False, default="PROVISIONAL")
+    barem_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("barems.id"))
+    algorithm_version: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
+    )
+
+    construct = relationship("Construct")

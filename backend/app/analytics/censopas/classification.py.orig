@@ -1,0 +1,68 @@
+"""Clasificación CENSOPAS por constructo y colectiva (harness §29-30). Funciones puras.
+
+Nunca hardcodear estos umbrales en el router — la regla debe poder
+versionarse/configurarse (§30). `DEFAULT_COLLECTIVE_RULES` es el valor
+inicial descrito en el harness; se puede sobreescribir por parámetro.
+"""
+
+from __future__ import annotations
+
+DEFAULT_COLLECTIVE_RULES = {
+    "version": "v1",
+    "unfavorable_threshold_pct": 50.0,
+    "favorable_threshold_pct": 50.0,
+}
+
+
+def classify_construct_score(
+    score_0_100: float,
+    cut_1: float,
+    cut_2: float,
+    direction: str | None,
+    favorable_label: str = "FAVORABLE",
+    intermediate_label: str = "INTERMEDIATE",
+    unfavorable_label: str = "UNFAVORABLE",
+) -> str:
+    """Clasifica un score 0-100 contra los cortes de un barem.
+
+    `direction`:
+        HIGHER_BETTER (default) -> score alto es favorable.
+        LOWER_BETTER            -> score alto es desfavorable (riesgo).
+    """
+    lo, hi = sorted((cut_1, cut_2))
+    if direction == "LOWER_BETTER":
+        if score_0_100 < lo:
+            return favorable_label
+        if score_0_100 < hi:
+            return intermediate_label
+        return unfavorable_label
+
+    if score_0_100 < lo:
+        return unfavorable_label
+    if score_0_100 < hi:
+        return intermediate_label
+    return favorable_label
+
+
+def classify_collective_result(
+    favorable_pct: float,
+    intermediate_pct: float,
+    unfavorable_pct: float,
+    rules: dict | None = None,
+) -> str:
+    """Regla colectiva configurable (harness §30):
+
+    rojo (desfavorable) >= 50%   -> riesgo alto
+    verde (favorable) >= 50%     -> factor protector
+    amarillo (intermedio) predominante -> riesgo medio
+    otro                          -> revisión
+    """
+    active_rules = {**DEFAULT_COLLECTIVE_RULES, **(rules or {})}
+
+    if unfavorable_pct >= active_rules["unfavorable_threshold_pct"]:
+        return "RIESGO_ALTO"
+    if favorable_pct >= active_rules["favorable_threshold_pct"]:
+        return "FACTOR_PROTECTOR"
+    if intermediate_pct > favorable_pct and intermediate_pct > unfavorable_pct:
+        return "RIESGO_MEDIO"
+    return "REVISION"

@@ -1,138 +1,320 @@
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session, selectinload
+from __future__ import annotations
 
-from fastapi import HTTPException, status
+from datetime import UTC, datetime
 
-from app.core.realtime import publish_response_event
-from app.models.base import utc_now
-from app.models.form import Form
-from app.models.form_question import FormQuestion
-from app.models.form_question_option import FormQuestionOption
-from app.models.form_response import FormResponse
-from app.models.form_answer import FormAnswer
-from app.schemas.form_response import FormResponseCreate
-from app.utils.scoring import calculate_option_score
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.exceptions import ConflictError, NotFoundError, ValidationDomainError
+from app.models.option_set import OptionSetOption
+from app.models.question import Question
+from app.models.response import Response, ResponseSession, ResponseSessionUnit
+from app.models.study import StudyUnit, StudyUnitType
+from app.models.survey import SurveyQuestion
+from app.repositories.responses import ResponseRepository
+from app.repositories.studies import StudyRepository
+from app.schemas.responses import ResponseSessionCompleteRequest, ResponseUpsert
+from app.schemas.studies import ResponseSessionUnitsReplace
+from app.services.audit_service import AuditService
+from app.services.response_completion_policy import resolve_completion_policy
 
 
 class ResponseService:
-    def __init__(self, db: Session):
-        self.db = db
+    """Captura de respuestas (harness §16-17). Formato largo: una fila por
+    sesión + pregunta; nunca una tabla distinta por survey."""
 
-    def _get_form(self, form_id: str) -> Form:
-        form = self.db.scalar(
-            select(Form).where(
-                Form.id == form_id,
-                Form.deleted_at.is_(None),
-            )
-        )
-        if form is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found")
-        return form
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.repo = ResponseRepository(session)
+        self.study_repo = StudyRepository(session)
+        self.audit = AuditService(session)
 
-    def _get_question_for_form(self, form_id: str, question_id: str) -> FormQuestion:
-        question = self.db.scalar(
-            select(FormQuestion).where(
-                FormQuestion.id == question_id,
-                FormQuestion.form_id == form_id,
-                FormQuestion.deleted_at.is_(None),
+    async def create_session(self, study_id: int) -> ResponseSession:
+        study = await self.study_repo.get(study_id)
+        if study is None:
+            raise NotFoundError(f"Estudio {study_id} no encontrado")
+        if study.status != "OPEN":
+            raise ConflictError(
+                "El estudio debe estar OPEN para aceptar respuestas.",
+                current_status=study.status,
             )
+        if study.end_at is not None:
+            end_at = study.end_at if study.end_at.tzinfo else study.end_at.replace(tzinfo=UTC)
+            if datetime.now(UTC) >= end_at:
+                raise ConflictError(
+                    "El estudio ya alcanzó su fecha de cierre (end_at).",
+                    end_at=str(study.end_at),
+                )
+
+        response_session = ResponseSession(study_id=study_id)
+        response_session = await self.repo.create_session(response_session)
+        await self.session.commit()
+        return response_session
+
+    async def _get_session(self, response_session_id: int) -> ResponseSession:
+        response_session = await self.repo.get_session(response_session_id)
+        if response_session is None:
+            raise NotFoundError(f"Sesión de respuesta {response_session_id} no encontrada")
+        return response_session
+
+    async def _get_question_in_survey(self, survey_id: int, question_id: int) -> Question:
+        stmt = select(Question).join(
+            SurveyQuestion, SurveyQuestion.question_id == Question.id
+        ).where(
+            SurveyQuestion.survey_id == survey_id, SurveyQuestion.question_id == question_id
         )
+        question = (await self.session.execute(stmt)).scalar_one_or_none()
         if question is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form question not found")
+            raise ValidationDomainError(
+                f"El ítem {question_id} no pertenece al survey de este estudio."
+            )
         return question
 
-    def _get_option_for_question(self, question_id: str, option_id: str) -> FormQuestionOption:
-        option = self.db.scalar(
-            select(FormQuestionOption).where(
-                FormQuestionOption.id == option_id,
-                FormQuestionOption.question_id == question_id,
-                FormQuestionOption.deleted_at.is_(None),
+    async def _resolve_option_by_id(self, question: Question, option_id: int) -> OptionSetOption:
+        if question.option_set_id is None:
+            raise ValidationDomainError("El ítem no tiene un conjunto de opciones configurado.")
+        if question.question_type in {"MULTIPLE_CHOICE", "RANKING"}:
+            raise ValidationDomainError(
+                "Este ítem requiere selected_option_ids en lugar de option_id."
             )
+        stmt = select(OptionSetOption).where(
+            OptionSetOption.id == option_id,
+            OptionSetOption.option_set_id == question.option_set_id,
+            OptionSetOption.is_active.is_(True),
         )
+        option = (await self.session.execute(stmt)).scalar_one_or_none()
         if option is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form question option not found")
+            raise ValidationDomainError("La opción no pertenece al ítem o está inactiva.")
         return option
 
-    def _get_response(self, response_id: str) -> FormResponse:
-        response = self.db.scalar(
-            select(FormResponse)
-            .options(selectinload(FormResponse.answers))
-            .where(
-                FormResponse.id == response_id,
-                FormResponse.deleted_at.is_(None),
+    async def _resolve_option_by_raw_code(self, question: Question, raw_code: str) -> OptionSetOption:
+        stmt = select(OptionSetOption).where(
+            OptionSetOption.option_set_id == question.option_set_id,
+            OptionSetOption.raw_code == raw_code,
+            OptionSetOption.is_active.is_(True),
+        )
+        option = (await self.session.execute(stmt)).scalar_one_or_none()
+        if option is None:
+            raise ValidationDomainError(
+                f"El código '{raw_code}' no pertenece al catálogo de opciones de este ítem.",
+                raw_code=raw_code,
+                question_id=question.id,
+            )
+        return option
+
+    async def _resolve_option(
+        self, question: Question, payload: ResponseUpsert
+    ) -> OptionSetOption | None:
+        """Resuelve la opción de catálogo para el valor escalar de la
+        respuesta (E-03): por `option_id` explícito, o por `raw_code` contra
+        el `option_set` del ítem cuando este último existe. Ítems sin
+        catálogo configurado (texto/numérico libre) no se validan aquí."""
+        if payload.option_id is not None:
+            return await self._resolve_option_by_id(question, payload.option_id)
+        if payload.raw_code is not None and question.option_set_id is not None:
+            option = await self._resolve_option_by_raw_code(question, payload.raw_code)
+            if payload.numeric_value is not None and (
+                option.numeric_value is None
+                or float(option.numeric_value) != float(payload.numeric_value)
+            ):
+                raise ValidationDomainError(
+                    "numeric_value no coincide con el valor registrado en el catálogo "
+                    "para ese raw_code.",
+                    raw_code=payload.raw_code,
+                    numeric_value=payload.numeric_value,
+                )
+            return option
+        return None
+
+    async def _validate_multi_options(
+        self, question: Question, payload: ResponseUpsert
+    ) -> dict[int, OptionSetOption]:
+        if payload.selected_option_ids is None:
+            return {}
+
+        if question.option_set_id is None:
+            raise ValidationDomainError("El ítem no tiene un conjunto de opciones configurado.")
+        if question.question_type not in {"MULTIPLE_CHOICE", "RANKING"}:
+            raise ValidationDomainError(
+                "selected_option_ids sólo es válido para selección múltiple o ranking."
+            )
+
+        unique_ids = set(payload.selected_option_ids)
+        if len(unique_ids) != len(payload.selected_option_ids):
+            raise ValidationDomainError("La respuesta contiene opciones duplicadas.")
+        stmt = select(OptionSetOption).where(
+            OptionSetOption.id.in_(unique_ids),
+            OptionSetOption.option_set_id == question.option_set_id,
+            OptionSetOption.is_active.is_(True),
+        )
+        options = list((await self.session.execute(stmt)).scalars().all())
+        options_by_id = {option.id: option for option in options}
+        if set(options_by_id) != unique_ids:
+            raise ValidationDomainError(
+                "Una o más opciones no pertenecen al ítem o están inactivas."
+            )
+        return options_by_id
+
+    async def replace_session_units(
+        self,
+        response_session_id: int,
+        payload: ResponseSessionUnitsReplace,
+    ) -> list[int]:
+        response_session = await self._get_session(response_session_id)
+        if response_session.status == "COMPLETED":
+            raise ConflictError(
+                "La sesión ya fue completada; sus unidades organizacionales están congeladas."
+            )
+        unit_ids = list(dict.fromkeys(payload.unit_ids))
+        if len(unit_ids) != len(payload.unit_ids):
+            raise ValidationDomainError("La asignación contiene unidades duplicadas.")
+        units: list[StudyUnit] = []
+        if unit_ids:
+            stmt = (
+                select(StudyUnit)
+                .join(
+                    StudyUnitType,
+                    StudyUnitType.id == StudyUnit.study_unit_type_id,
+                )
+                .where(
+                    StudyUnit.id.in_(unit_ids),
+                    StudyUnitType.study_id == response_session.study_id,
+                    StudyUnit.is_active.is_(True),
+                )
+            )
+            units = list((await self.session.execute(stmt)).scalars().all())
+            if {unit.id for unit in units} != set(unit_ids):
+                raise ValidationDomainError(
+                    "Una o más unidades no pertenecen al estudio o están inactivas."
+                )
+            unit_type_ids = {unit.study_unit_type_id for unit in units}
+            if len(unit_type_ids) != len(units):
+                raise ValidationDomainError(
+                    "Sólo se puede asignar una unidad por cada tipo de unidad."
+                )
+        await self.session.execute(
+            delete(ResponseSessionUnit).where(
+                ResponseSessionUnit.response_session_id == response_session_id
             )
         )
+        self.session.add_all(
+            [
+                ResponseSessionUnit(
+                    response_session_id=response_session_id,
+                    study_unit_id=unit_id,
+                )
+                for unit_id in unit_ids
+            ]
+        )
+        await self.session.commit()
+        return unit_ids
+
+    async def upsert_response(
+        self, response_session_id: int, question_id: int, payload: ResponseUpsert
+    ) -> Response:
+        response_session = await self._get_session(response_session_id)
+        if response_session.status == "COMPLETED":
+            raise ConflictError("La sesión ya fue completada; no admite más respuestas.")
+
+        study = await self.study_repo.get(response_session.study_id)
+        question = await self._get_question_in_survey(study.survey_id, question_id)
+        selected_option = await self._resolve_option(question, payload)
+        await self._validate_multi_options(question, payload)
+
+        response = await self.repo.get_response(response_session_id, question_id)
         if response is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form response not found")
+            response = Response(
+                study_id=response_session.study_id,
+                response_session_id=response_session_id,
+                question_id=question_id,
+            )
+
+        # Cuando la opción se resuelve (por `option_id` o por `raw_code`
+        # contra el catálogo), se conservan sus valores canónicos y se fija
+        # `option_id` aunque el cliente sólo haya mandado `raw_code` — cierra
+        # la trazabilidad raw_code -> option -> numeric_value (E-03).
+        response.option_id = selected_option.id if selected_option else payload.option_id
+        response.raw_code = selected_option.raw_code if selected_option else payload.raw_code
+        response.numeric_value = (
+            selected_option.numeric_value if selected_option else payload.numeric_value
+        )
+        response.text_value = payload.text_value
+        response.boolean_value = payload.boolean_value
+        response.date_value = payload.date_value
+        response.datetime_value = payload.datetime_value
+        response.value_jsonb = (
+            {"selected_option_ids": payload.selected_option_ids}
+            if payload.selected_option_ids is not None
+            else None
+        )
+        response.is_missing = payload.is_missing
+
+        response = await self.repo.add_response(response)
+        await self.repo.replace_selected_options(
+            response.id, payload.selected_option_ids or []
+        )
+        if response_session.status == "STARTED":
+            response_session.status = "IN_PROGRESS"
+        await self.session.commit()
         return response
 
-    def create_response(self, form_id: str, payload: FormResponseCreate) -> FormResponse:
-        form = self._get_form(form_id)
-        response = FormResponse(
-            project_id=form.project_id,
-            form_id=form.id,
-            respondent_code=payload.respondent_code,
-            status=payload.status,
-            submitted_at=payload.submitted_at or utc_now(),
-            source=payload.source,
-            metadata_json=payload.metadata_json,
-        )
-        self.db.add(response)
-        self.db.flush()
+    async def complete_session(
+        self, response_session_id: int, payload: ResponseSessionCompleteRequest
+    ) -> ResponseSession:
+        response_session = await self._get_session(response_session_id)
+        if response_session.status == "COMPLETED":
+            return response_session
 
-        for answer_payload in payload.answers:
-            question = self._get_question_for_form(form.id, answer_payload.question_id)
-            option = None
-            if answer_payload.option_id is not None:
-                option = self._get_option_for_question(question.id, answer_payload.option_id)
+        study = await self.study_repo.get_with_instrument_version(response_session.study_id)
 
-            answer = FormAnswer(
-                response_id=response.id,
-                question_id=question.id,
-                option_id=option.id if option is not None else None,
-                value_text=answer_payload.value_text,
-                value_number=answer_payload.value_number,
-                value_date=answer_payload.value_date,
-                value_json=answer_payload.value_json,
-                score_value=answer_payload.score_value
-                if answer_payload.score_value is not None
-                else (
-                    calculate_option_score(question, option)
-                    if option is not None
-                    else (
-                        answer_payload.value_number
-                        if question.question_type == "number" and question.is_scored and answer_payload.value_number is not None
-                        else None
-                    )
-                ),
+        total_stmt = select(SurveyQuestion).where(SurveyQuestion.survey_id == study.survey_id)
+        total_questions = len((await self.session.execute(total_stmt)).scalars().all())
+
+        responses = await self.repo.list_by_session(response_session_id)
+        answered = sum(1 for r in responses if not r.is_missing)
+
+        completion_pct = round((answered / total_questions) * 100, 2) if total_questions else 0.0
+        policy = resolve_completion_policy(study)
+        # El mínimo absoluto nunca excede el total de ítems del instrumento:
+        # de lo contrario un instrumento corto (p.ej. 2 preguntas) nunca
+        # podría alcanzar VALID aunque se respondiera el 100%.
+        min_answered = min(policy.min_answered_count, total_questions)
+
+        now = datetime.now(UTC)
+        response_session.status = "COMPLETED"
+        response_session.completed_at = now
+        response_session.completion_pct = completion_pct
+        if response_session.started_at:
+            started_at = response_session.started_at
+            if started_at.tzinfo is None:
+                # SQLite (tests) no conserva el offset de TIMESTAMPTZ; se
+                # asume UTC, consistente con `server_default=func.now()`.
+                started_at = started_at.replace(tzinfo=UTC)
+            response_session.duration_seconds = int((now - started_at).total_seconds())
+
+        if payload.exclusion_reason:
+            response_session.validation_status = "EXCLUDED"
+            response_session.exclusion_reason = payload.exclusion_reason
+        elif answered == 0:
+            response_session.validation_status = "EXCLUDED"
+            response_session.exclusion_reason = "Sesión sin respuestas registradas."
+        elif answered < min_answered:
+            response_session.validation_status = "EXCLUDED"
+            response_session.exclusion_reason = (
+                f"Solo se respondieron {answered} ítems; se requieren al menos "
+                f"{min_answered}."
             )
-            self.db.add(answer)
+        elif completion_pct >= policy.min_completion_percent:
+            response_session.validation_status = "VALID"
+        else:
+            response_session.validation_status = "REVIEW"
 
-        self.db.commit()
-        result = self._get_response(response.id)
-        publish_response_event(
-            form_id=result.form_id,
-            project_id=result.project_id,
-            response_id=result.id,
-            response_status=result.status,
-            submitted_at=result.submitted_at or result.created_at,
-            source=result.source,
+        await self.session.flush()
+        await self.audit.log(
+            action="RESPONSE_SESSION_COMPLETED",
+            entity_type="response_session",
+            entity_id=response_session.id,
         )
-        return result
-
-    def list_responses(self, form_id: str) -> tuple[list[FormResponse], int]:
-        self._get_form(form_id)
-        filters = [FormResponse.form_id == form_id, FormResponse.deleted_at.is_(None)]
-        items = list(
-            self.db.scalars(
-                select(FormResponse)
-                .options(selectinload(FormResponse.answers))
-                .where(*filters)
-                .order_by(FormResponse.created_at.asc())
-            ).all()
-        )
-        total = int(self.db.scalar(select(func.count()).select_from(FormResponse).where(*filters)) or 0)
-        return items, total
-
-    def get_response(self, response_id: str) -> FormResponse:
-        return self._get_response(response_id)
+        await self.session.commit()
+        await self.session.refresh(response_session)
+        return response_session

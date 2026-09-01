@@ -1,0 +1,32 @@
+/**
+ * Paleta semántica única para charts (D-03, D-04): antes cada panel de
+ * resultados hardcodeaba sus propios hex (`#f59e0b`, `#22c55e`, ...) sin
+ * relación con los tokens de `tailwind.config.js`, así que un mismo nivel
+ * de riesgo podía verse con un color distinto según el gráfico. Recharts
+ * necesita valores hex directos (no puede leer clases de Tailwind), así que
+ * este módulo es la única fuente de verdad — debe permanecer sincronizado
+ * con `colors.success/warning/danger` de `tailwind.config.js`.
+ */
+
+// Verde -> ámbar -> rojo, siempre en ese orden semántico (favorable primero).
+export const RISK_COLORS = {
+  favorable: '#059669',
+  intermediate: '#D97706',
+  unfavorable: '#DC2626',
+};
+
+export const RISK_ORDER = ['favorable', 'intermediate', 'unfavorable'];
+
+/** Resuelve un color de riesgo a partir de un código de clasificación
+ * (FAVORABLE/INTERMEDIO/DESFAVORABLE, insensible a mayúsculas/acentos). */
+export function riskColorFor(classificationCode) {
+  const code = (classificationCode || '').toString().toUpperCase();
+  if (code.startsWith('FAVOR')) return RISK_COLORS.favorable;
+  if (code.startsWith('INTERMEDI')) return RISK_COLORS.intermediate;
+  if (code.startsWith('DESFAVOR') || code.startsWith('UNFAVOR')) return RISK_COLORS.unfavorable;
+  return '#9CA3AF'; // gris neutro para estados sin clasificación
+}
+
+// Paleta categórica (series múltiples sin semántica de riesgo: grupos,
+// clusters, series temporales) — reutiliza los tokens de marca existentes.
+export const CATEGORICAL_COLORS = ['#F5B21A', '#11B7B2', '#FF6A2A', '#0C9897', '#D99712', '#1C1F24'];

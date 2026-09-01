@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -44,16 +45,11 @@ textarea {
 }
 
 /* ── Selects: soporte de tema del dispositivo ──── */
-/* color-scheme hace que el desplegable nativo y su
-   flecha sigan el tema claro/oscuro del dispositivo. */
 select {
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
-  /* Caja del select. !important para vencer las
-     utilidades bg-white/text-dark aplicadas inline
-     en los distintos selects de la app. */
   select {
     background-color: #20242b !important;
     color: #e5e7eb !important;
@@ -73,7 +69,6 @@ select {
     opacity: 0.6;
   }
 
-  /* Lista de opciones desplegada: legible sobre fondo oscuro. */
   select option {
     background-color: #20242b;
     color: #e5e7eb;
@@ -136,16 +131,47 @@ summary::-webkit-details-marker {
 .colmena-card:hover {
   background: rgba(255, 255, 255, 0.85);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
+}
+
+.colmena-modal:hover {
+  background: #ffffff;
+  box-shadow: 0 18px 60px rgba(28, 31, 36, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transform: none;
+}
+
+.colmena-page {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.colmena-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+@media (min-width: 640px) {
+  .colmena-page {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
 }
 
 .colmena-input {
-  height: 44px;
+  height: 40px;
   border-radius: 12px;
   border: 1px solid rgba(223, 226, 230, 0.8);
   background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(8px);
-  padding: 0 14px;
+  padding: 0 12px;
   font-size: 14px;
   color: #1c1f24;
   outline: none;
@@ -163,15 +189,19 @@ summary::-webkit-details-marker {
   color: #9ca3af;
 }
 
+.colmena-input.has-error {
+  border-color: #DC2626;
+}
+
 .colmena-button-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 44px;
+  height: 40px;
   border-radius: 12px;
   background: linear-gradient(135deg, #F5B21A 0%, #E09A0A 100%);
   color: #ffffff;
-  padding: 0 22px;
+  padding: 0 18px;
   font-size: 14px;
   font-weight: 600;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -203,13 +233,13 @@ summary::-webkit-details-marker {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 44px;
+  height: 40px;
   border-radius: 12px;
   border: 1px solid rgba(223, 226, 230, 0.8);
   background: rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(8px);
   color: #1c1f24;
-  padding: 0 18px;
+  padding: 0 15px;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -259,8 +289,34 @@ summary::-webkit-details-marker {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes colmena-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes colmena-modal-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .animate-colmena-fade-in {
   animation: colmena-fade-in 0.35s ease-out;
+}
+
+.animate-colmena-overlay-in {
+  animation: colmena-overlay-in 0.18s ease-out;
+}
+
+.animate-colmena-modal-in {
+  animation: colmena-modal-in 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-colmena-fade-in,
+  .animate-colmena-overlay-in,
+  .animate-colmena-modal-in {
+    animation: none;
+  }
 }
 
 /* ── Contenteditable placeholder ──────────────── */
@@ -271,7 +327,519 @@ summary::-webkit-details-marker {
   pointer-events: none;
 }
 
-/* ── Compact button variants (2026) ──────────── */
+/* ── Survey take: skin tokens ─────────────────────
+   Dos pieles seleccionables para el formulario público (PublicSurveyPage +
+   SurveyQuestionRenderer) y para el preview de SurveyThemePicker. El skin
+   "colmena" reproduce en variables los valores que antes estaban
+   hardcodeados en clases Tailwind (cero cambio visual por defecto); el
+   skin "modernist" porta los tokens de survey_squeleton/_ds/modernist
+   (styles.css) y el layout de Likability Survey.dc.html. `--survey-accent`,
+   `--survey-bg` y `--survey-text` son las 3 variables que
+   SurveyThemePicker deja editar por proyecto (ver design/surveyThemes.js);
+   el resto se deriva con color-mix() para que un solo color siga
+   pareciendo un sistema coherente. */
+
+.survey-shell {
+  --survey-accent: #F5B21A;
+  --survey-bg: #FAFAF8;
+  --survey-text: #111111;
+  --survey-muted: #6B7280;
+  --survey-surface: rgba(255, 255, 255, 0.65);
+  --survey-surface-border: rgba(255, 255, 255, 0.6);
+  --survey-border: #E6E8EB;
+  --survey-border-width: 1px;
+  --survey-accent-soft: color-mix(in srgb, var(--survey-accent) 10%, transparent);
+  --survey-accent-text: color-mix(in srgb, var(--survey-accent) 85%, black);
+  --survey-radius-card: 20px;
+  --survey-radius-option: 14px;
+  --survey-radius-input: 12px;
+  --survey-radius-pill: 999px;
+  --survey-label-transform: none;
+  --survey-label-tracking: 0.06em;
+  --survey-font-heading: 'Inter', system-ui, sans-serif;
+  --survey-font-body: 'Inter', system-ui, sans-serif;
+
+  min-height: 100vh;
+  background: var(--survey-bg) radial-gradient(ellipse at 10% 0%, color-mix(in srgb, var(--survey-accent) 8%, transparent) 0%, transparent 50%), radial-gradient(ellipse at 90% 0%, rgba(17, 183, 178, 0.06) 0%, transparent 50%);
+  color: var(--survey-text);
+  font-family: var(--survey-font-body);
+}
+
+.survey-shell[data-survey-skin="modernist"] {
+  --survey-muted: color-mix(in srgb, var(--survey-text) 55%, transparent);
+  --survey-surface: color-mix(in srgb, var(--survey-bg) 92%, var(--survey-text));
+  --survey-surface-border: var(--survey-border);
+  --survey-border: color-mix(in srgb, var(--survey-text) 38%, transparent);
+  --survey-border-width: 2px;
+  --survey-accent-soft: color-mix(in srgb, var(--survey-accent) 14%, transparent);
+  --survey-accent-text: var(--survey-bg);
+  --survey-radius-card: 0px;
+  --survey-radius-option: 0px;
+  --survey-radius-input: 0px;
+  --survey-radius-pill: 0px;
+  --survey-label-transform: uppercase;
+  --survey-label-tracking: 0.12em;
+  --survey-font-heading: 'Archivo', system-ui, sans-serif;
+  --survey-font-body: 'Archivo', system-ui, sans-serif;
+
+  background: var(--survey-bg);
+}
+
+.survey-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  width: 100%;
+  padding: 16px;
+  background: color-mix(in srgb, var(--survey-bg) 80%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: var(--survey-border-width) solid var(--survey-border);
+}
+
+.survey-shell[data-survey-skin="modernist"] .survey-header {
+  background: var(--survey-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@media (min-width: 640px) {
+  .survey-header { padding: 16px 32px; }
+}
+
+.survey-header-inner {
+  margin: 0 auto;
+  display: flex;
+  max-width: 42rem;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.survey-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.survey-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--survey-font-heading);
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: var(--survey-label-tracking);
+  text-transform: var(--survey-label-transform);
+  color: var(--survey-text);
+}
+
+.survey-progress-track {
+  height: 6px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--survey-radius-pill);
+  background: var(--survey-border);
+}
+
+.survey-progress-fill {
+  height: 100%;
+  border-radius: var(--survey-radius-pill);
+  background: var(--survey-accent);
+  transition: width 200ms ease;
+}
+
+.survey-main {
+  margin: 0 auto;
+  display: flex;
+  max-width: 48rem;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 16px;
+}
+
+@media (min-width: 640px) {
+  .survey-main { padding: 24px; }
+}
+
+.survey-shell[data-survey-align="left"] .survey-main {
+  margin-left: 0;
+}
+
+.survey-card {
+  border: 1px solid var(--survey-surface-border);
+  border-radius: var(--survey-radius-card);
+  background: var(--survey-surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  padding: 20px;
+}
+
+.survey-shell[data-survey-skin="modernist"] .survey-card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+@media (min-width: 640px) {
+  .survey-card { padding: 24px; }
+}
+
+.survey-section-banner {
+  margin-bottom: 16px;
+  border-radius: var(--survey-radius-input);
+  border: var(--survey-border-width) solid var(--survey-border);
+  background: color-mix(in srgb, var(--survey-bg) 96%, var(--survey-text));
+  padding: 12px 16px;
+}
+
+.survey-section-title {
+  font-family: var(--survey-font-heading);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--survey-text);
+}
+
+.survey-section-description {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--survey-muted);
+}
+
+.survey-section-tag {
+  margin-top: 8px;
+  display: inline-flex;
+  border-radius: var(--survey-radius-pill);
+  background: rgba(17, 183, 178, 0.1);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0C9897;
+}
+
+.survey-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 640px) {
+  .survey-grid { grid-template-columns: 220px minmax(0, 1fr); }
+}
+
+/* El preview del picker vive en una tarjeta angosta, no a lo ancho de la
+   página pública: el breakpoint de arriba (pensado para esa página
+   completa) aprieta el rail de 220px contra el contenido y lo empuja
+   hacia un costado. Acá siempre va en una sola columna. */
+.survey-theme-preview .survey-grid {
+  grid-template-columns: 1fr;
+}
+.survey-theme-preview .survey-main {
+  padding: 16px;
+}
+.survey-theme-preview .survey-all {
+  padding: 16px;
+  max-width: none;
+}
+
+.survey-label {
+  display: block;
+  font-family: var(--survey-font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--survey-muted);
+  text-transform: var(--survey-label-transform);
+  letter-spacing: var(--survey-label-tracking);
+}
+
+.survey-short-label {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--survey-muted);
+}
+
+.survey-question-text {
+  font-family: var(--survey-font-heading);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.3;
+  color: var(--survey-text);
+}
+
+.survey-shell[data-survey-skin="modernist"] .survey-question-text {
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+
+.survey-required-note,
+.survey-error-note {
+  font-size: 12px;
+}
+
+.survey-required-note { color: var(--survey-muted); }
+.survey-error-note { color: #DC2626; font-weight: 500; }
+
+.survey-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.survey-btn {
+  display: inline-flex;
+  height: 40px;
+  width: 8rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--survey-radius-input);
+  font-family: var(--survey-font-heading);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, transform 120ms ease;
+  border: var(--survey-border-width) solid transparent;
+}
+
+.survey-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.survey-btn--wide { width: 12rem; }
+
+.survey-btn-secondary {
+  background: color-mix(in srgb, var(--survey-bg) 90%, var(--survey-text));
+  color: var(--survey-text);
+  border-color: var(--survey-border);
+}
+.survey-btn-secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--survey-bg) 80%, var(--survey-text)); }
+
+.survey-btn-primary {
+  background: var(--survey-text);
+  color: var(--survey-bg);
+}
+.survey-btn-primary:hover:not(:disabled) { transform: translateY(-1px); }
+
+.survey-shell[data-survey-skin="modernist"] .survey-btn-primary {
+  background: var(--survey-accent);
+  color: var(--survey-bg);
+}
+.survey-shell[data-survey-skin="modernist"] .survey-btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--survey-accent) 85%, black);
+  transform: none;
+}
+
+/* — inputs — */
+.survey-input,
+.survey-textarea {
+  width: 100%;
+  border-radius: var(--survey-radius-input);
+  border: var(--survey-border-width) solid var(--survey-border);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--survey-text);
+  outline: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+.survey-input { height: 48px; }
+.survey-textarea { padding: 10px 12px; min-height: 96px; resize: vertical; }
+.survey-input:focus,
+.survey-textarea:focus {
+  border-color: var(--survey-accent);
+}
+.survey-input::placeholder,
+.survey-textarea::placeholder { color: var(--survey-muted); }
+
+.survey-shell[data-survey-skin="modernist"] .survey-input,
+.survey-shell[data-survey-skin="modernist"] .survey-textarea {
+  background: var(--survey-surface);
+}
+
+/* — options (choice / boolean / ranking) — */
+.survey-option {
+  cursor: pointer;
+  border-radius: var(--survey-radius-option);
+  border: var(--survey-border-width) solid var(--survey-border);
+  background: rgba(255, 255, 255, 0.6);
+  padding: 12px 16px;
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--survey-muted);
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.survey-option:hover { border-color: color-mix(in srgb, var(--survey-accent) 50%, var(--survey-border)); }
+.survey-option--center { text-align: center; }
+
+.survey-option.selected {
+  border-color: var(--survey-accent);
+  background: var(--survey-accent-soft);
+  color: var(--survey-accent-text);
+}
+
+.survey-shell[data-survey-skin="modernist"] .survey-option {
+  border-radius: 0;
+  background: color-mix(in srgb, var(--survey-bg) 96%, var(--survey-text));
+}
+.survey-shell[data-survey-skin="modernist"] .survey-option:hover {
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--survey-accent) 10%, transparent);
+}
+/* Single/multiple choice: fila completa con indicador cuadrado (Q6/Q7 del
+   skeleton). Los cells de Likert (`--center`) son compactos y van sin
+   indicador — si se les aplica esta misma fila flex, el contenido queda
+   pegado a la izquierda de un cell angosto en vez de centrado. */
+.survey-shell[data-survey-skin="modernist"] .survey-option:not(.survey-option--center) {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.survey-shell[data-survey-skin="modernist"] .survey-option:not(.survey-option--center) .survey-option-dot {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid currentColor;
+  background-color: transparent;
+}
+.survey-shell[data-survey-skin="modernist"] .survey-option.selected:not(.survey-option--center) .survey-option-dot {
+  background-color: currentColor;
+}
+.survey-shell[data-survey-skin="modernist"] .survey-option--center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-weight: 700;
+}
+.survey-shell[data-survey-skin="modernist"] .survey-option--center .survey-option-dot {
+  display: none;
+}
+/* El skeleton original rellena la opción seleccionada con el accent sólido
+   (texto claro encima), no con un tinte suave — usar el fondo "soft"
+   pensado para colmena aquí dejaba texto casi invisible sobre casi-blanco. */
+.survey-shell[data-survey-skin="modernist"] .survey-option.selected {
+  background: var(--survey-accent);
+  border-color: var(--survey-accent);
+  color: var(--survey-accent-text);
+}
+
+.survey-toggle {
+  flex: 1;
+  border-radius: var(--survey-radius-option);
+  border: var(--survey-border-width) solid var(--survey-border);
+  background: rgba(255, 255, 255, 0.6);
+  padding: 12px 16px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--survey-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.survey-toggle.selected {
+  border-color: var(--survey-accent);
+  background: var(--survey-accent-soft);
+  color: var(--survey-accent-text);
+}
+.survey-shell[data-survey-skin="modernist"] .survey-toggle {
+  border-radius: 0;
+  background: color-mix(in srgb, var(--survey-bg) 96%, var(--survey-text));
+}
+.survey-shell[data-survey-skin="modernist"] .survey-toggle.selected {
+  background: var(--survey-accent);
+  border-color: var(--survey-accent);
+  color: var(--survey-accent-text);
+}
+
+.survey-rank-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: var(--survey-radius-option);
+  border: var(--survey-border-width) solid var(--survey-border);
+  background: rgba(255, 255, 255, 0.6);
+  padding: 12px 16px;
+}
+
+.survey-shell[data-survey-skin="modernist"] .survey-rank-row {
+  border-radius: 0;
+  background: color-mix(in srgb, var(--survey-bg) 90%, var(--survey-text));
+}
+
+.survey-rank-pos {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--survey-muted);
+}
+
+.survey-shell[data-survey-skin="modernist"] .survey-rank-pos {
+  font-family: var(--survey-font-heading);
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--survey-accent);
+  width: 40px;
+}
+
+.survey-rank-actions { display: flex; gap: 4px; }
+
+.survey-rank-btn {
+  display: flex;
+  height: 28px;
+  width: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--survey-radius-pill);
+  border: var(--survey-border-width) solid var(--survey-border);
+  background: #ffffff;
+  color: var(--survey-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.survey-rank-btn:hover { background: #f5f6f8; }
+
+.survey-shell[data-survey-skin="modernist"] .survey-rank-btn {
+  border-radius: 0;
+  background: color-mix(in srgb, var(--survey-bg) 92%, white);
+}
+.survey-shell[data-survey-skin="modernist"] .survey-rank-btn:hover {
+  background: color-mix(in srgb, var(--survey-bg) 82%, var(--survey-text));
+}
+
+/* — NPS slider — */
+.survey-nps-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.survey-nps-value {
+  font-family: var(--survey-font-heading);
+  font-weight: 800;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--survey-accent-text);
+}
+
+.survey-shell[data-survey-skin="modernist"] .survey-nps-value {
+  font-size: 56px;
+  color: var(--survey-accent);
+  letter-spacing: -0.03em;
+}
+
+.survey-nps-range {
+  width: 100%;
+  accent-color: var(--survey-accent);
+}
+
+.survey-nps-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--survey-muted);
+}
+
+/* ── Compact button variants ─────────────────── */
 
 .colmena-button-sm-primary {
   display: inline-flex;
@@ -361,6 +929,94 @@ summary::-webkit-details-marker {
   color: #6B7280;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
+/* ── Survey take: modo "todas las preguntas en pantalla" ──────────
+   Estructura tomada directo de survey_squeleton/Likability Survey.dc.html:
+   un contenedor largo (sin cards) con las preguntas separadas por líneas
+   divisorias, no una tarjeta centrada por pregunta. El contenedor del
+   skeleton (`max-width: 1080px; padding: 0 40px`) no tiene margin:auto —
+   por eso el default acá es alineado a la izquierda; `data-survey-align`
+   permite centrarlo igual que el modo de una pregunta a la vez. */
+
+.survey-all {
+  max-width: 68rem;
+  padding: 24px 16px 64px;
+}
+
+@media (min-width: 640px) {
+  .survey-all { padding: 40px 32px 80px; }
+}
+
+.survey-shell:not([data-survey-align="left"]) .survey-all {
+  margin: 0 auto;
+}
+
+.survey-all-hero {
+  padding-bottom: 28px;
+  margin-bottom: 8px;
+  border-bottom: var(--survey-border-width) solid var(--survey-border);
+}
+
+.survey-all-kicker {
+  display: block;
+  font-family: var(--survey-font-heading);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--survey-accent);
+  text-transform: var(--survey-label-transform);
+  letter-spacing: var(--survey-label-tracking);
+  margin-bottom: 10px;
+}
+
+.survey-all-title {
+  font-family: var(--survey-font-heading);
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  max-width: 28ch;
+  margin: 0 0 12px;
+  color: var(--survey-text);
+}
+
+.survey-shell[data-survey-skin="modernist"] .survey-all-title {
+  font-size: 40px;
+}
+
+.survey-all-description {
+  font-size: 15px;
+  line-height: 1.55;
+  max-width: 60ch;
+  color: var(--survey-muted);
+}
+
+.survey-all-section-banner {
+  margin: 28px 0 4px;
+}
+
+.survey-all-row {
+  padding: 24px 0;
+  border-bottom: var(--survey-border-width) solid var(--survey-border);
+}
+
+.survey-all-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-top: 28px;
+}
+
+.survey-all-note {
+  font-size: 13px;
+  color: var(--survey-muted);
+}
+
+.survey-all-missing {
+  font-size: 12px;
+  font-weight: 600;
+  color: #DC2626;
+}
