@@ -81,14 +81,12 @@ def test_advanced_scoring_end_to_end(client):
             "min_answered_items": 2,
             "min_completion_percent": 60,
             "reverse_scoring_enabled": True,
-            "score_min": 1,
-            "score_max": 5,
             "interpretation_enabled": True,
             "config_json": {"question_ids": [questions["item_01"]["id"], questions["item_02"]["id"], questions["item_03"]["id"]]},
             "bands": [
-                {"label": "Bajo", "code": "low", "min_value": 1.0, "max_value": 2.333, "interpretation": "Nivel bajo"},
-                {"label": "Medio", "code": "medium", "min_value": 2.334, "max_value": 3.666, "interpretation": "Nivel medio"},
-                {"label": "Alto", "code": "high", "min_value": 3.667, "max_value": 5.0, "interpretation": "Nivel alto"},
+                {"label": "Bajo", "code": "low", "min_value": 0.0, "max_value": 33.32, "interpretation": "Nivel bajo"},
+                {"label": "Medio", "code": "medium", "min_value": 33.34, "max_value": 66.65, "interpretation": "Nivel medio"},
+                {"label": "Alto", "code": "high", "min_value": 66.67, "max_value": 100.0, "interpretation": "Nivel alto"},
             ],
         },
     )
@@ -162,7 +160,8 @@ def test_advanced_scoring_end_to_end(client):
             )
         )
         assert response_score is not None
-        assert response_score.final_score == 2.0
+        # Ítems normalizados a 0-100: item_01=1→0, item_02(reverse)=2→75, item_03=1→0 ⇒ media 25.0
+        assert response_score.final_score == 25.0
         assert response_score.band_label == "Bajo"
         assert response_score.interpretation == "Nivel bajo"
 

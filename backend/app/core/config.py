@@ -19,6 +19,18 @@ class Settings(BaseSettings):
     )
     cors_extra_origins: str = Field(default="", alias="COLMENA_CORS_EXTRA_ORIGINS")
     redis_url: str = Field(default="redis://127.0.0.1:6379/0", alias="COLMENA_REDIS_URL")
+    # Login standalone de Colmena (email + contraseña). El SSO de AppThesis no usa esto.
+    jwt_secret: str = Field(
+        default="colmena-dev-secret-change-me-in-prod-please",
+        alias="COLMENA_JWT_SECRET",
+    )
+    jwt_expire_minutes: int = Field(
+        default=60 * 24 * 7, alias="COLMENA_JWT_EXPIRE_MINUTES"
+    )
+    # Base del frontend de Colmena (para armar enlaces, p. ej. el de reset de contraseña).
+    frontend_base_url: str = Field(
+        default="http://127.0.0.1:5174", alias="COLMENA_FRONTEND_BASE_URL"
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

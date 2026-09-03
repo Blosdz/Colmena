@@ -11,13 +11,17 @@ import {
   type BaremoTableRow,
   type BaremoTableSavePayload,
 } from "../api/baremoTables";
-import { listProjectForms } from "../api/forms";
+import { getDescriptives } from "../api/descriptives";
+import { listInstruments, listProjectForms } from "../api/forms";
 import { getProject } from "../api/projects";
-import { getBaremoResolution } from "../api/scoring";
+import { getBaremoResolution, listScoringConfigs } from "../api/scoring";
 import { PageHeader } from "../components/layout/PageHeader";
 import { BaremoLevelsChart, type BaremoLevelDatum } from "../components/reports/BaremoLevelsChart";
+import { BaremoDistributionPanel } from "../components/results/BaremoDistributionPanel";
 import { BaremoResultTable } from "../components/results/BaremoResultTable";
 import { useActiveStudy } from "../components/study/useActiveStudy";
+import { TelemetryChartsGrid } from "../components/telemetry/TelemetryChartsGrid";
+import { ALL_QUESTIONS_KEY, TelemetryGroupSelector } from "../components/telemetry/TelemetryGroupSelector";
 import { LoadingState } from "../components/ui/LoadingState";
 import type { VariableBaremo } from "../types/scoring";
 
@@ -91,6 +95,24 @@ export function ProjectResultsPage() {
     queryFn: () => listBaremoTables(formId),
     enabled: Boolean(formId),
   });
+  const descriptivesQuery = useQuery({
+    queryKey: ["project-results-descriptives", formId],
+    queryFn: () => getDescriptives(formId),
+    enabled: Boolean(formId),
+  });
+  const configsQuery = useQuery({
+    queryKey: ["project-results-scoring-configs", formId],
+    queryFn: () => listScoringConfigs(formId),
+    enabled: Boolean(formId),
+  });
+  const instrumentsQuery = useQuery({
+    queryKey: ["project-results-instruments", formId],
+    queryFn: () => listInstruments(formId),
+    enabled: Boolean(formId),
+  });
+
+  // Combo variable → dimensión → todo (mismo que Telemetría).
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
 
   // Estado local editable: se inicializa mezclando la resolución automática con
   // lo guardado; después de eso el usuario manda y solo se persiste hacia el backend.
@@ -253,12 +275,66 @@ export function ProjectResultsPage() {
     );
   }
 
-  if (resolutionQuery.isLoading || savedQuery.isLoading || tables === null) {
-    return <LoadingState label="Cargando tablas de baremos..." />;
+  if (
+    resolutionQuery.isLoading ||
+    savedQuery.isLoading ||
+    descriptivesQuery.isLoading ||
+    tables === null
+  ) {
+    return <LoadingState label="Cargando resultados..." />;
   }
 
-  const variableTables = tables.filter((table) => table.groupKind !== "dimension");
-  const dimensionTables = tables.filter((table) => table.groupKind === "dimension");
+  const descriptives = descriptivesQuery.data;
+  const dimensions = descriptives?.dimensions ?? [];
+  const instruments = descriptives?.instruments ?? [];
+  const projectVariables = descriptives?.project_variables ?? [];
+  const questions = descriptives?.questions ?? [];
+
+  const defaultGroup = projectVariables[0]
+    ? `variable:${projectVariables[0].variable_id}`
+    : dimensions[0]
+      ? `dimension:${dimensions[0].dimension_id}`
+      : ALL_QUESTIONS_KEY;
+  const effectiveGroup = selectedGroup ?? defaultGroup;
+  const [groupKind, groupId] = effectiveGroup.split(":");
+
+  // config_id → { dimensionId, variableId } para filtrar baremos por el combo.
+  const instrumentVariable = new Map<string, string>();
+  for (const instrument of instrumentsQuery.data?.items ?? []) {
+    if (instrument.project_variable_id) instrumentVariable.set(instrument.id, instrument.project_variable_id);
+  }
+  const dimensionInstrument = new Map(dimensions.map((d) => [d.dimension_id, d.instrument_id]));
+  const constructForConfig = (configId: string): { dimensionId: string | null; variableId: string | null } => {
+    const cfg = (configsQuery.data?.items ?? []).find((c) => c.id === configId);
+    const dimensionId = cfg?.dimension_id ?? null;
+    let variableId = cfg?.project_variable_id ?? null;
+    if (!variableId && cfg?.instrument_id) variableId = instrumentVariable.get(cfg.instrument_id) ?? null;
+    if (!variableId && dimensionId) {
+      const instrumentId = dimensionInstrument.get(dimensionId);
+      if (instrumentId) variableId = instrumentVariable.get(instrumentId) ?? null;
+    }
+    return { dimensionId, variableId };
+  };
+  const configMatchesGroup = (configId: string): boolean => {
+    if (groupKind !== "dimension" && groupKind !== "variable") return true;
+    const { dimensionId, variableId } = constructForConfig(configId);
+    return groupKind === "dimension" ? dimensionId === groupId : variableId === groupId;
+  };
+  const questionMatchesGroup = (q: { dimension_id?: string | null; project_variable_id?: string | null }): boolean => {
+    if (groupKind === "dimension") return q.dimension_id === groupId;
+    if (groupKind === "variable") return q.project_variable_id === groupId;
+    return true;
+  };
+
+  const filteredBaremoItems = (resolutionQuery.data?.items ?? []).filter((item) =>
+    configMatchesGroup(item.scoring_config_id),
+  );
+  const filteredQuestions = questions.filter(questionMatchesGroup);
+  const visibleTables = tables.filter(
+    (table) => table.computedRows === null || configMatchesGroup(table.tableKey),
+  );
+  const variableTables = visibleTables.filter((table) => table.groupKind !== "dimension");
+  const dimensionTables = visibleTables.filter((table) => table.groupKind === "dimension");
 
   const renderSection = (
     sectionTitle: string,
@@ -314,16 +390,50 @@ export function ProjectResultsPage() {
     <div className="space-y-8">
       <PageHeader
         title="Resultados"
-        description="Tablas de baremos con frecuencias editables; el porcentaje se recalcula automáticamente."
+        description="Distribución por nivel de baremo, gráficos de respuesta y tablas de frecuencias editables."
       />
+
+      <div className="flex flex-wrap items-center gap-3">
+        <TelemetryGroupSelector
+          dimensions={dimensions}
+          instruments={instruments}
+          projectVariables={projectVariables}
+          value={effectiveGroup}
+          onChange={setSelectedGroup}
+        />
+        <span className="text-xs text-muted">
+          El baremo y los gráficos de abajo se filtran por esta selección.
+        </span>
+      </div>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-dark">Distribución por niveles</h2>
+          <p className="text-sm text-muted">
+            Cuántos participantes caen en cada nivel del baremo.
+          </p>
+        </div>
+        <BaremoDistributionPanel items={filteredBaremoItems} />
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-dark">Gráficos de respuesta</h2>
+          <p className="text-sm text-muted">
+            Barras y pastel por cada pregunta{groupKind === "dimension" ? " de la dimensión" : groupKind === "variable" ? " de la variable" : ""}.
+          </p>
+        </div>
+        <TelemetryChartsGrid questions={filteredQuestions} formId={formId} />
+      </section>
+
       {renderSection(
-        "Por variable",
-        "Una tabla por cada variable de estudio.",
+        "Baremos por variable",
+        "Tabla de frecuencias editable; el porcentaje se recalcula solo.",
         variableTables,
         "variable",
       )}
       {renderSection(
-        "Por dimensión",
+        "Baremos por dimensión",
         "Una tabla por cada dimensión de los instrumentos.",
         dimensionTables,
         "dimension",

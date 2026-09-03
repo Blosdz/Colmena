@@ -30,7 +30,21 @@ def compute_completion(answered: int, total: int) -> float:
     return round((answered / total) * 100, 3)
 
 
+def _normalize_0_100(value: float, minimum: float, maximum: float) -> float | None:
+    """Lleva un puntaje de item a la escala 0-100 (como COLMENA 2.0)."""
+    if maximum <= minimum:
+        return None
+    return ((value - minimum) / (maximum - minimum)) * 100.0
+
+
 def apply_reverse_scoring_if_needed(answer: Any, question: Any, options_by_id: dict[str, Any]) -> tuple[float | None, list[str]]:
+    """Devuelve el puntaje del item ya **normalizado a 0-100** e invertido si corresponde.
+
+    Igual que COLMENA 2.0: cada item se normaliza con ((v-min)/(max-min))*100 usando
+    el rango de puntajes de sus opciones; los items inversos se giran (100 - x). Así
+    el puntaje de la variable/dimensión es comparable entre instrumentos de distinta
+    escala o número de items.
+    """
     warnings: list[str] = []
     if answer is None:
         return None, warnings
@@ -42,22 +56,31 @@ def apply_reverse_scoring_if_needed(answer: Any, question: Any, options_by_id: d
         option = options_by_id.get(option_id)
         if option is None or getattr(option, "score", None) is None:
             return getattr(answer, "score_value", None), warnings
-        score = float(option.score)
-        if getattr(question, "is_reverse_scored", False):
-            scores = [
-                float(candidate.score)
-                for candidate in options_by_id.values()
-                if getattr(candidate, "deleted_at", None) is None and getattr(candidate, "score", None) is not None
-            ]
-            if len(scores) < 2:
+        raw = float(option.score)
+        scores = [
+            float(candidate.score)
+            for candidate in options_by_id.values()
+            if getattr(candidate, "deleted_at", None) is None and getattr(candidate, "score", None) is not None
+        ]
+        if len(set(scores)) < 2:
+            if getattr(question, "is_reverse_scored", False):
                 warnings.append(reverse_scoring_missing_options())
-                return score, warnings
-            return max(scores) + min(scores) - score, warnings
-        return score, warnings
+            return raw, warnings
+        lo, hi = min(scores), max(scores)
+        if getattr(question, "is_reverse_scored", False):
+            raw = lo + hi - raw
+        return _normalize_0_100(raw, lo, hi), warnings
 
     if getattr(question, "question_type", None) == "number":
         value_number = getattr(answer, "value_number", None)
-        return (float(value_number) if value_number is not None else None), warnings
+        if value_number is None:
+            return None, warnings
+        lo = getattr(question, "min_value", None)
+        hi = getattr(question, "max_value", None)
+        if lo is not None and hi is not None and float(hi) > float(lo):
+            value = float(hi) + float(lo) - float(value_number) if getattr(question, "is_reverse_scored", False) else float(value_number)
+            return _normalize_0_100(value, float(lo), float(hi)), warnings
+        return float(value_number), warnings
 
     score_value = getattr(answer, "score_value", None)
     return (float(score_value) if score_value is not None else None), warnings
@@ -115,11 +138,9 @@ def apply_missing_policy(
         warnings.append(insufficient_items())
         return raw_score, mean_score, weighted_score, None, warnings
 
-    if aggregation_method == "sum":
-        final_score = raw_score
-        if missing_policy == "prorate_if_threshold_met" and raw_score is not None and mean_score is not None and answered_items < total_items:
-            final_score = float(mean_score * total_items)
-    elif aggregation_method == "weighted_mean":
+    # Los items ya vienen en escala 0-100, así que el puntaje de la variable
+    # siempre se promedia (nunca se suma). "weighted_mean" respeta los pesos.
+    if aggregation_method == "weighted_mean" and weighted_score is not None:
         final_score = weighted_score
     else:
         final_score = mean_score

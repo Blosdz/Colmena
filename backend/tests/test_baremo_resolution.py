@@ -17,16 +17,14 @@ def _create_scoring_configs(client, fixture) -> None:
             "aggregation_method": "mean",
             "missing_policy": "allow_partial",
             "reverse_scoring_enabled": True,
-            "score_min": 1,
-            "score_max": 5,
             "interpretation_enabled": True,
             "config_json": {
                 "question_ids": [questions["item_01"]["id"], questions["item_02"]["id"], questions["item_03"]["id"]]
             },
             "bands": [
-                {"label": "Bajo", "code": "low", "min_value": 1.0, "max_value": 2.333, "interpretation": "Nivel bajo"},
-                {"label": "Medio", "code": "medium", "min_value": 2.334, "max_value": 3.666, "interpretation": "Nivel medio"},
-                {"label": "Alto", "code": "high", "min_value": 3.667, "max_value": 5.0, "interpretation": "Nivel alto"},
+                {"label": "Bajo", "code": "low", "min_value": 0.0, "max_value": 33.32, "interpretation": "Nivel bajo"},
+                {"label": "Medio", "code": "medium", "min_value": 33.34, "max_value": 66.65, "interpretation": "Nivel medio"},
+                {"label": "Alto", "code": "high", "min_value": 66.67, "max_value": 100.0, "interpretation": "Nivel alto"},
             ],
         },
     )
@@ -42,8 +40,6 @@ def _create_scoring_configs(client, fixture) -> None:
             "aggregation_method": "mean",
             "missing_policy": "allow_partial",
             "reverse_scoring_enabled": True,
-            "score_min": 1,
-            "score_max": 5,
             "interpretation_enabled": True,
         },
     )
@@ -74,8 +70,8 @@ def test_baremo_resolution_endpoint(client):
     without_bands = by_code["Puntaje de dimension"]
     assert without_bands["baremo_source"] == "equal_range_formula"
     assert len(without_bands["levels"]) == 3
-    assert without_bands["levels"][0]["min_value"] == 1
-    assert without_bands["levels"][-1]["max_value"] == 5
+    assert without_bands["levels"][0]["min_value"] == 0
+    assert without_bands["levels"][-1]["max_value"] == 100
 
 
 def test_baremo_apa_table_and_full_scan_blocks(client):

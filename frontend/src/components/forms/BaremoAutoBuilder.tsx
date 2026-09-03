@@ -35,15 +35,17 @@ export function BaremoAutoBuilder({
   const [byVariable, setByVariable] = useState(baremos.length > 0);
   const [byDimension, setByDimension] = useState(dimensions.some((d) => d.baremos.length > 0));
 
-  // ── Rango en vivo (watch): #ítems × valor mín/máx de la escala ──
-  const totalMin = items.length * scaleMin;
-  const totalMax = items.length * scaleMax;
+  // Los puntajes se normalizan a 0-100 (estilo COLMENA 2.0): los baremos van
+  // siempre sobre 0-100, sin importar el nº de ítems ni la escala Likert.
+  const totalMin = 0;
+  const totalMax = 100;
   const dimCount = (dim: DimensionDraft) => items.filter((i) => i.dimensionName === dim.name).length;
 
-  const genVariable = (n = levelsCount) => onChange(calculateEqualRangeBaremos(totalMin, totalMax, n));
+  const genVariable = (n = levelsCount) =>
+    onChange(calculateEqualRangeBaremos(0, 100, n, "mean"));
   const genDimension = (dim: DimensionDraft, n = levelsCount) => {
     const c = dimCount(dim);
-    if (c > 0) onDimensionBaremosChange(dim.id, calculateEqualRangeBaremos(c * scaleMin, c * scaleMax, n));
+    if (c > 0) onDimensionBaremosChange(dim.id, calculateEqualRangeBaremos(0, 100, n, "mean"));
   };
 
   const toggleVariable = (checked: boolean) => {
@@ -106,7 +108,7 @@ export function BaremoAutoBuilder({
                     mín {totalMin} · máx {totalMax}
                   </span>
                   <span className="text-[10px] text-muted">
-                    ({items.length} ítems × {scaleMin}–{scaleMax})
+                    (puntaje normalizado 0–100 · {items.length} ítems, escala {scaleMin}–{scaleMax})
                   </span>
                 </>
               ) : (
@@ -175,8 +177,8 @@ export function BaremoAutoBuilder({
               key={dim.id}
               title={dim.name}
               subtitle={`${c} ítems`}
-              rangeMin={c * scaleMin}
-              rangeMax={c * scaleMax}
+              rangeMin={0}
+              rangeMax={100}
               baremos={dim.baremos}
               onChange={(b) => onDimensionBaremosChange(dim.id, b)}
               onRecalculate={() => genDimension(dim)}

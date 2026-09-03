@@ -1,8 +1,9 @@
-import { Star, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 import type { ParsedQuestion } from "../../utils/bulkQuestionParser";
 import type { DimensionDraft } from "../../utils/projectDraftStore";
 import { cn } from "../../utils/cn";
+import { ResponseEditor } from "./ResponseEditor";
 
 /** Escala proveniente del catálogo del backend (GET /api/v1/scales) */
 export type CatalogScale = {
@@ -37,8 +38,13 @@ type Props = {
 function getItemIssues(q: ParsedQuestion): string[] {
   const issues: string[] = [];
   if (!q.text.trim()) issues.push("Falta el texto de la pregunta");
-  if (!q.dimensionName) issues.push("Sin dimensión asignada");
+  // Las variables exógenas (Sexo, Edad…) no pertenecen a una dimensión del constructo.
+  if (q.responseKind !== "exogenous" && !q.dimensionName) issues.push("Sin dimensión asignada");
   if (!q.code.trim()) issues.push("Falta el código");
+  if (q.responseKind === "exogenous" && (q.exogenousType ?? "single_choice") === "single_choice") {
+    const valid = (q.exogenousOptions ?? []).filter((o) => o.label.trim());
+    if (valid.length < 2) issues.push("La variable exógena necesita al menos 2 opciones");
+  }
   return issues;
 }
 
@@ -216,77 +222,56 @@ export function BulkQuestionTable({
                 onChange={(e) => onUpdate(q.id, { text: e.target.value })}
               />
 
-              {/* Escala: siempre visible, tal como la verá el encuestado */}
-              <div className="rounded-lg border border-colmena-border bg-colmena-bg px-3 py-2.5">
-                <div className="mb-1.5 flex items-center gap-2">
-                  <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-muted">Escala</span>
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 py-0.5 text-[9px]",
-                      inherited ? "bg-colmena-border/60 text-muted" : "bg-amber/15 text-dark"
-                    )}
-                  >
-                    {effective
-                      ? inherited
-                        ? `Hereda: ${effective.name}`
-                        : `Propia: ${effective.name}`
-                      : "Sin escala: define la escala global en la pestaña Escala"}
-                  </span>
-                </div>
-                {effective && <ScalePreviewField scale={effective} questionId={q.id} />}
-                {q.reversed && effective && effective.options.length > 1 && (
-                  <p className="mt-1.5 text-[10px] text-muted">
-                    Invertido: "{effective.options[0].label}" puntúa {effective.options[effective.options.length - 1].value} y "
-                    {effective.options[effective.options.length - 1].label}" puntúa {effective.options[0].value}.
-                  </p>
-                )}
-              </div>
+              {/* Editor de respuesta modular: escala Likert o variable exógena */}
+              <ResponseEditor
+                question={q}
+                effectiveScale={effective}
+                inherited={inherited}
+                scales={scales}
+                defaultScale={defaultScale}
+                onUpdate={(updates) => onUpdate(q.id, updates)}
+              />
+              {q.responseKind !== "exogenous" && q.reversed && effective && effective.options.length > 1 && (
+                <p className="text-[10px] text-muted">
+                  Invertido: "{effective.options[0].label}" puntúa {effective.options[effective.options.length - 1].value} y "
+                  {effective.options[effective.options.length - 1].label}" puntúa {effective.options[0].value}.
+                </p>
+              )}
 
-              {/* Controles secundarios: dimensión, escala override, flags */}
+              {/* Controles secundarios: dimensión + flags */}
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  className={cn(
-                    "bg-white outline-none font-medium cursor-pointer border rounded px-1.5 py-1 text-[11px] shadow-sm transition-all hover:border-amber focus:border-amber",
-                    q.dimensionName ? "border-colmena-border text-dark" : "border-warning/50 text-warning"
-                  )}
-                  value={q.dimensionName || ""}
-                  onChange={(e) => onUpdate(q.id, { dimensionName: e.target.value })}
-                >
-                  <option value="">— Sin asignar —</option>
-                  {dimensions.map((d) => (
-                    <option key={d.id} value={d.name}>{d.name}</option>
-                  ))}
-                </select>
+                {q.responseKind !== "exogenous" && (
+                  <select
+                    className={cn(
+                      "bg-white outline-none font-medium cursor-pointer border rounded px-1.5 py-1 text-[11px] shadow-sm transition-all hover:border-amber focus:border-amber",
+                      q.dimensionName ? "border-colmena-border text-dark" : "border-warning/50 text-warning"
+                    )}
+                    value={q.dimensionName || ""}
+                    onChange={(e) => onUpdate(q.id, { dimensionName: e.target.value })}
+                  >
+                    <option value="">— Sin asignar —</option>
+                    {dimensions.map((d) => (
+                      <option key={d.id} value={d.name}>{d.name}</option>
+                    ))}
+                  </select>
+                )}
 
-                <select
-                  className={cn(
-                    "bg-white outline-none cursor-pointer border border-colmena-border hover:border-amber focus:border-amber rounded px-1.5 py-1 text-[11px] shadow-sm transition-all",
-                    inherited ? "text-muted italic" : "text-dark font-medium"
-                  )}
-                  title={effective ? effective.options.map((o) => `${o.value} ${o.label}`).join(" · ") : undefined}
-                  value={inherited ? "" : q.scale}
-                  onChange={(e) => onUpdate(q.id, { scale: e.target.value })}
-                >
-                  <option value="">
-                    Global{defaultScale ? ` (${defaultScale.name})` : " (sin definir)"}
-                  </option>
-                  {scales.map((s) => (
-                    <option key={s.id} value={s.name}>{s.name}</option>
-                  ))}
-                </select>
-
-                <label className="inline-flex items-center gap-1 text-[11px] text-muted" title="Ítem invertido: se recodifica al puntuar">
-                  <input type="checkbox" checked={q.reversed} onChange={(e) => onUpdate(q.id, { reversed: e.target.checked })} />
-                  Invertido
-                </label>
+                {q.responseKind !== "exogenous" && (
+                  <label className="inline-flex items-center gap-1 text-[11px] text-muted" title="Ítem invertido: se recodifica al puntuar">
+                    <input type="checkbox" checked={q.reversed} onChange={(e) => onUpdate(q.id, { reversed: e.target.checked })} />
+                    Invertido
+                  </label>
+                )}
                 <label className="inline-flex items-center gap-1 text-[11px] text-muted" title="Respuesta obligatoria">
                   <input type="checkbox" checked={q.required} onChange={(e) => onUpdate(q.id, { required: e.target.checked })} />
                   Requerido
                 </label>
-                <label className="inline-flex items-center gap-1 text-[11px] text-muted" title="Ítem de importancia (para el gráfico Stewart)">
-                  <input type="checkbox" checked={q.isImportance} onChange={(e) => onUpdate(q.id, { isImportance: e.target.checked })} />
-                  Importancia
-                </label>
+                {q.responseKind !== "exogenous" && (
+                  <label className="inline-flex items-center gap-1 text-[11px] text-muted" title="Ítem de importancia (para el gráfico Stewart)">
+                    <input type="checkbox" checked={q.isImportance} onChange={(e) => onUpdate(q.id, { isImportance: e.target.checked })} />
+                    Importancia
+                  </label>
+                )}
               </div>
             </div>
           );
@@ -306,88 +291,3 @@ export function BulkQuestionTable({
   );
 }
 
-/** Renderiza la escala tal como la verá el encuestado, según su render_style. */
-function ScalePreviewField({ scale, questionId }: { scale: CatalogScale; questionId: string }) {
-  const options = scale.options;
-  if (options.length === 0) return null;
-
-  const first = options[0];
-  const last = options[options.length - 1];
-
-  switch (scale.render_style) {
-    // Línea deslizable estilo EVA ("line of satisfaction").
-    case "slider_line":
-      return (
-        <div className="max-w-md">
-          <input
-            disabled
-            type="range"
-            min={first.value}
-            max={last.value}
-            defaultValue={first.value}
-            className="w-full accent-amber"
-          />
-          <div className="flex justify-between text-[10px] text-muted">
-            <span>{first.label}</span>
-            <span>{last.label}</span>
-          </div>
-        </div>
-      );
-
-    // Botones numerados 0–10 en fila (Net Promoter Score).
-    case "nps":
-      return (
-        <div className="flex flex-wrap items-center gap-1">
-          {options.map((opt) => (
-            <span
-              key={opt.value}
-              className="flex h-7 w-7 items-center justify-center rounded-md border border-colmena-border bg-white text-[11px] font-semibold text-dark"
-              title={opt.label}
-            >
-              {opt.value}
-            </span>
-          ))}
-        </div>
-      );
-
-    // Estrellas.
-    case "stars":
-      return (
-        <div className="flex items-center gap-1" title={options.map((o) => o.label).join(" · ")}>
-          {options.map((opt) => (
-            <Star key={opt.value} className="h-4 w-4 text-amber" />
-          ))}
-        </div>
-      );
-
-    // Caritas (útil para encuestas a niños).
-    case "faces": {
-      const faces = ["😞", "🙁", "😐", "🙂", "😄"];
-      return (
-        <div className="flex items-center gap-1.5">
-          {options.map((opt, i) => (
-            <span key={opt.value} className="text-lg" title={opt.label}>
-              {faces[Math.min(i, faces.length - 1)]}
-            </span>
-          ))}
-        </div>
-      );
-    }
-
-    // Por defecto: radios (radio).
-    default:
-      return (
-        <div className="flex flex-wrap gap-1.5">
-          {options.map((opt) => (
-            <label
-              key={opt.value}
-              className="flex cursor-default items-center gap-1.5 rounded-lg border border-colmena-border bg-white px-2 py-1 text-[11px] text-dark"
-            >
-              <input disabled name={`preview-${questionId}`} type="radio" />
-              {opt.label}
-            </label>
-          ))}
-        </div>
-      );
-  }
-}

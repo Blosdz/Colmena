@@ -187,6 +187,7 @@ export interface FormResponse {
   project_id: string;
   form_id: string;
   respondent_code?: string | null;
+  respondent_ip?: string | null;
   status: string;
   submitted_at?: string | null;
   source: string;

@@ -509,8 +509,10 @@ class AdvancedScoringService:
                     config_warnings.append("baremo_mean_sd_zero_variance")
 
             if not levels and score_min is not None and score_max is not None and score_min < score_max:
+                # Puntajes en escala continua 0-100 → cortes continuos (33.3 / 66.6),
+                # nunca la variante de rango entero pensada para sumas de ítems.
                 levels = compute_equal_range_baremo(
-                    score_min, score_max, levels_count, aggregation_method=config.aggregation_method
+                    score_min, score_max, levels_count, aggregation_method="mean"
                 )
                 baremo_source = "equal_range_formula"
                 config_warnings.append("baremo_computed_with_equal_range_formula")

@@ -72,6 +72,7 @@ class FormResponseRead(BaseModel):
     project_id: str
     form_id: str
     respondent_code: str | None
+    respondent_ip: str | None = None
     status: str
     submitted_at: datetime | None
     source: str

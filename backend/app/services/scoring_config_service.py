@@ -109,10 +109,11 @@ class ScoringConfigService:
         instrument_id: str | None,
         project_variable_id: str | None,
     ) -> tuple[float, float] | None:
-        """Suma el rango teórico (min/max posible) de los ítems puntuados en el
-        alcance dado, a partir del score de sus opciones de escala. Permite que
-        un scoring_config recién creado (sin bandas ni respuestas todavía)
-        tenga un rango sobre el cual calcular baremos automáticamente."""
+        """Rango teórico del puntaje de la variable/dimensión.
+
+        Desde la normalización estilo COLMENA 2.0, cada ítem se lleva a 0-100 y el
+        puntaje de la variable es su promedio, así que el rango teórico es siempre
+        0-100 mientras haya al menos un ítem puntuado en el alcance."""
         filters = [
             FormQuestion.form_id == form_id,
             FormQuestion.is_scored.is_(True),
@@ -127,39 +128,23 @@ class ScoringConfigService:
         else:
             return None
 
-        questions = list(self.db.scalars(select(FormQuestion).where(*filters)).all())
-        if not questions:
-            return None
-
-        total_min = 0.0
-        total_max = 0.0
-        contributed = False
-        for question in questions:
-            scores = list(
-                self.db.scalars(
-                    select(FormQuestionOption.score).where(
-                        FormQuestionOption.question_id == question.id,
-                        FormQuestionOption.deleted_at.is_(None),
-                        FormQuestionOption.score.is_not(None),
-                    )
-                ).all()
-            )
-            if scores:
-                total_min += min(scores)
-                total_max += max(scores)
-                contributed = True
-            elif question.min_value is not None and question.max_value is not None:
-                total_min += question.min_value
-                total_max += question.max_value
-                contributed = True
-
-        return (total_min, total_max) if contributed else None
+        has_question = self.db.scalar(select(FormQuestion.id).where(*filters)) is not None
+        return (0.0, 100.0) if has_question else None
 
     def create_scoring_config(self, form_id: str, payload: ScoringConfigCreate) -> ScoringConfig:
         form = self._get_form(form_id)
         self._validate_scope(form_id, payload)
         data = payload.model_dump(exclude={"bands"})
-        if data.get("score_min") is None and data.get("score_max") is None:
+        # Puntajes normalizados a 0-100 (estilo COLMENA 2.0): el puntaje de una
+        # variable/dimensión es el promedio de sus ítems ya en 0-100, así que
+        # todo config de ítems vive en 0-100 pase lo que pase.
+        config_json = data.get("config_json") if isinstance(data.get("config_json"), dict) else {}
+        item_scope = any(
+            data.get(key) for key in ("dimension_id", "instrument_id", "project_variable_id")
+        ) or bool(config_json.get("question_ids"))
+        if item_scope:
+            data["score_min"], data["score_max"] = 0.0, 100.0
+        elif data.get("score_min") is None and data.get("score_max") is None:
             computed = self._compute_theoretical_range(
                 form_id,
                 dimension_id=data.get("dimension_id"),

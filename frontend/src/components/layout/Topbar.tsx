@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import { apiClient } from "../../api/client";
 import { clearStoredUser, getStoredUser } from "../../auth/session";
+import { clearActiveProjectId } from "../../utils/activeProject";
 
 export function Topbar() {
   const navigate = useNavigate();
@@ -19,6 +20,7 @@ export function Topbar() {
 
   const handleLogout = () => {
     clearStoredUser();
+    clearActiveProjectId();
     navigate("/login", { replace: true });
   };
 

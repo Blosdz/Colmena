@@ -19,6 +19,7 @@ type Props = {
   onUpdateItem: (id: string, updates: Partial<ParsedQuestion>) => void;
   onRemoveItem: (id: string) => void;
   onAddManualItem: () => void;
+  onAddExogenousItem: () => void;
   onAddQuickDimension: () => void;
   onUpdateScale: (scale: ScaleDraft) => void;
 };
@@ -35,6 +36,7 @@ export function ItemsPanel({
   onUpdateItem,
   onRemoveItem,
   onAddManualItem,
+  onAddExogenousItem,
   onUpdateScale,
 }: Props) {
   const [showScaleEditor, setShowScaleEditor] = useState(false);
@@ -97,7 +99,14 @@ export function ItemsPanel({
         <button type="button" onClick={onAddManualItem} className="colmena-button-sm-primary">
           + Agregar ítem
         </button>
-
+        <button
+          type="button"
+          onClick={onAddExogenousItem}
+          className="rounded-lg border border-colmena-border bg-white px-2.5 py-1.5 text-[12px] font-semibold text-dark hover:border-amber hover:text-amber transition-colors"
+          title="Dato de perfil del participante (Sexo, Edad…) — se guarda como variable comparable, no se puntúa"
+        >
+          + Variable exógena
+        </button>
       </div>
 
       <BulkQuestionTable

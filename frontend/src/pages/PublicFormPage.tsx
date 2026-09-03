@@ -1,379 +1,350 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Check, ChevronRight, Clock, Info, AlertTriangle } from "lucide-react";
+import { Check, Clock, Info } from "lucide-react";
 
 import { getPublicForm, submitPublicResponse } from "../api/publicForms";
 import type { PublicAnswerCreate, PublicFormQuestionRead } from "../types/publicForm";
 import { LoadingState } from "../components/ui/LoadingState";
 import { ErrorState } from "../components/ui/ErrorState";
+import { resolveSurveyTheme } from "../design/surveyThemes";
 import {
-  ColmenaFormShell,
-  ColmenaQuestionField,
-  ColmenaLikertMatrix,
-  ColmenaGradientHeader,
-  groupQuestionsForMatrix,
-  resolveFormPalette,
-  useResolvedFormTheme,
-  DEFAULT_FORM_THEME,
-  type FormTheme,
-  type RenderField,
-} from "../components/forms/FormSurface";
+  SurveyShell,
+  SurveyProgressHeader,
+  SurveyQuestionRenderer,
+  SurveyAllQuestionsView,
+  hasAnswer,
+} from "../components/forms/survey/SurveyKit";
 
-const toRenderField = (q: PublicFormQuestionRead): RenderField => ({
-  id: q.id,
-  label: q.label,
-  helpText: q.help_text,
-  type: q.question_type,
-  required: q.is_required,
-  code: q.code,
-  options: q.options?.map((o) => ({ id: o.id, label: o.label, value: o.value })),
-  minValue: q.min_value,
-  maxValue: q.max_value,
-  dimensionId: q.dimension_id,
-});
+type Section = {
+  id: string;
+  title: string | null;
+  description?: string | null;
+  questions: PublicFormQuestionRead[];
+};
+
+function buildSections(form: {
+  sections: { id: string; title: string; description?: string | null }[];
+  questions: PublicFormQuestionRead[];
+}): Section[] {
+  const { sections, questions } = form;
+  if (sections.length === 0) {
+    return [{ id: "all", title: null, description: null, questions }];
+  }
+  const map: Record<string, PublicFormQuestionRead[]> = {};
+  sections.forEach((s) => (map[s.id] = []));
+  const loose: PublicFormQuestionRead[] = [];
+  questions.forEach((q) => {
+    if (q.section_id && map[q.section_id]) map[q.section_id].push(q);
+    else loose.push(q);
+  });
+  const out: Section[] = sections
+    .map((s) => ({ id: s.id, title: s.title, description: s.description, questions: map[s.id] || [] }))
+    .filter((s) => s.questions.length > 0);
+  if (loose.length > 0) {
+    out.push({ id: "loose", title: "Preguntas generales", description: null, questions: loose });
+  }
+  return out;
+}
 
 export function PublicFormPage() {
   const { publicSlug = "" } = useParams();
 
   const [step, setStep] = useState<"welcome" | "questions" | "completed">("welcome");
-  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+  const [sectionIndex, setSectionIndex] = useState(0);
   const [respondentCode, setRespondentCode] = useState("");
   const [answers, setAnswers] = useState<Record<string, PublicAnswerCreate>>({});
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const transmissionId = useMemo(() => Math.random().toString(36).substring(2, 10).toUpperCase(), []);
-
-  const { data: form, isLoading, error } = useQuery({
+  const { data: form, isLoading, error: loadError } = useQuery({
     queryKey: ["public-form", publicSlug],
     queryFn: () => getPublicForm(publicSlug),
     enabled: Boolean(publicSlug),
   });
 
-  // Resolve theme (primary color / background / font) from the form metadata.
-  const rawTheme = useMemo<FormTheme>(() => {
-    if (!form?.metadata_json) return DEFAULT_FORM_THEME;
+  const theme = useMemo(() => {
+    if (!form?.metadata_json) return resolveSurveyTheme(undefined);
     try {
-      const meta = JSON.parse(form.metadata_json);
-      return { ...DEFAULT_FORM_THEME, ...(meta.theme || {}) };
+      return resolveSurveyTheme(JSON.parse(form.metadata_json).theme);
     } catch {
-      return DEFAULT_FORM_THEME;
+      return resolveSurveyTheme(undefined);
     }
   }, [form?.metadata_json]);
-  // "system" background follows the OS light/dark preference.
-  const theme = useResolvedFormTheme(rawTheme);
-  const p = resolveFormPalette(theme);
+
+  const sections = useMemo<Section[]>(() => (form ? buildSections(form) : []), [form]);
+  const allQuestions = useMemo(() => sections.flatMap((s) => s.questions), [sections]);
 
   const submitMutation = useMutation({
-    mutationFn: (payload: { respondent_code: string; answers: PublicAnswerCreate[] }) =>
+    mutationFn: () =>
       submitPublicResponse(publicSlug, {
-        respondent_code: payload.respondent_code || undefined,
-        answers: payload.answers,
+        respondent_code: respondentCode || undefined,
+        answers: Object.values(answers),
         metadata_json: {
           user_agent: navigator.userAgent,
-          screen_size: `${window.innerWidth}x${window.innerHeight}`,
           submitted_at_local: new Date().toISOString(),
         },
       }),
     onSuccess: () => setStep("completed"),
-    onError: (err: any) => {
-      setValidationError(
-        err.response?.data?.detail ||
-          "Error al enviar las respuestas. Por favor, revisa tus respuestas e intenta de nuevo."
-      );
-    },
+    onError: (err: unknown) =>
+      setError(
+        err instanceof Error ? err.message : "No se pudieron enviar las respuestas. Revisa e intenta de nuevo.",
+      ),
   });
 
-  const pageWrap = (children: React.ReactNode) => (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6"
-      style={{ background: p.pageBg, fontFamily: p.fontFamily }}
-    >
-      {children}
-    </div>
-  );
-
-  if (isLoading) {
-    return pageWrap(<LoadingState label="Cargando formulario…" />);
-  }
-
-  if (error || !form) {
-    return pageWrap(
-      <div
-        className="max-w-md w-full rounded-[28px] p-8 text-center"
-        style={{ background: p.cardBg, border: `1px solid ${p.cardBorder}` }}
-      >
-        <AlertTriangle className="w-14 h-14 mx-auto mb-4" style={{ color: "#EF4444" }} />
-        <h2 className="text-2xl font-bold mb-2" style={{ color: p.title }}>
-          Formulario no disponible
-        </h2>
-        <p className="text-sm mb-6" style={{ color: p.muted }}>
-          El enlace de este formulario es inválido, ha expirado o el formulario ha sido cerrado por el
-          investigador.
-        </p>
-        <ErrorState message={(error as Error)?.message || "Formulario no encontrado"} />
-      </div>
-    );
-  }
-
-  const { questions = [], sections = [], title, description, instructions, thank_you_message } = form;
-
-  const getSectionsWithQuestions = () => {
-    if (sections.length === 0) {
-      return [
-        {
-          id: "default",
-          title: "Cuestionario",
-          description: "Por favor contesta todas las preguntas a continuación.",
-          questions,
-        },
-      ];
-    }
-
-    const map: Record<string, typeof questions> = {};
-    const unsectioned: typeof questions = [];
-    sections.forEach((s) => {
-      map[s.id] = [];
-    });
-    questions.forEach((q) => {
-      if (q.section_id && map[q.section_id]) map[q.section_id].push(q);
-      else unsectioned.push(q);
-    });
-
-    const activeSections = sections
-      .map((s) => ({ id: s.id, title: s.title, description: s.description, questions: map[s.id] || [] }))
-      .filter((s) => s.questions.length > 0);
-
-    if (unsectioned.length > 0) {
-      activeSections.push({
-        id: "unsectioned",
-        title: "Preguntas generales",
-        description: "Preguntas del cuestionario",
-        questions: unsectioned,
-      });
-    }
-    return activeSections;
-  };
-
-  const formSections = getSectionsWithQuestions();
-  const currentSection = formSections[currentSectionIndex] || null;
-
-  const handleAnswerChange = (questionId: string, answer: Partial<PublicAnswerCreate>) => {
-    setValidationError(null);
+  const setAnswer = (questionId: string, patch: Partial<PublicAnswerCreate>) => {
+    setError(null);
     setAnswers((prev) => ({
       ...prev,
-      [questionId]: { ...prev[questionId], question_id: questionId, ...answer },
+      [questionId]: { ...prev[questionId], question_id: questionId, ...patch },
     }));
   };
 
-  const validateCurrentSection = () => {
-    if (!currentSection) return true;
-    for (const q of currentSection.questions) {
-      if (!q.is_required) continue;
-      const ans = answers[q.id];
-      if (!ans) return false;
-      if (q.question_type === "text_short" || q.question_type === "text_long") {
-        if (!ans.value_text || ans.value_text.trim() === "") return false;
-      } else if (q.question_type === "number") {
-        if (ans.value_number === undefined || ans.value_number === null) return false;
-        if (q.min_value != null && ans.value_number < q.min_value) return false;
-        if (q.max_value != null && ans.value_number > q.max_value) return false;
-      } else if (q.question_type === "date") {
-        if (!ans.value_date) return false;
-      } else if (q.question_type === "multiple_choice") {
-        if (!ans.value_json || !Array.isArray(ans.value_json) || ans.value_json.length === 0) return false;
-      } else {
-        if (!ans.option_id) return false;
-      }
-    }
-    return true;
-  };
+  const missingIn = (qs: PublicFormQuestionRead[]) =>
+    qs.filter((q) => q.is_required && !hasAnswer(q, answers[q.id]));
 
-  const handleNext = () => {
-    if (!validateCurrentSection()) {
-      setValidationError("Por favor, responde todas las preguntas obligatorias antes de continuar.");
+  if (isLoading) {
+    return (
+      <SurveyShell theme={theme} style={{ display: "grid", placeItems: "center" }}>
+        <LoadingState label="Cargando formulario…" />
+      </SurveyShell>
+    );
+  }
+
+  if (loadError || !form) {
+    return (
+      <SurveyShell theme={theme}>
+        <main className="survey-main">
+          <div className="survey-card">
+            <p className="survey-label">Formulario no disponible</p>
+            <p className="survey-question-text" style={{ marginTop: 8 }}>
+              El enlace es inválido, expiró o el formulario fue cerrado.
+            </p>
+            <div style={{ marginTop: 16 }}>
+              <ErrorState message={(loadError as Error)?.message || "Formulario no encontrado"} />
+            </div>
+          </div>
+        </main>
+      </SurveyShell>
+    );
+  }
+
+  const answeredCount = allQuestions.filter((q) => hasAnswer(q, answers[q.id])).length;
+
+  /* ── Welcome ── */
+  if (step === "welcome") {
+    return (
+      <SurveyShell theme={theme}>
+        <main className="survey-main">
+          <div className="survey-card">
+            <span className="survey-label">Estudio científico</span>
+            <h1 className="survey-question-text" style={{ marginTop: 8, fontSize: 24 }}>
+              {form.title}
+            </h1>
+            {form.description ? (
+              <p className="survey-short-label" style={{ marginTop: 12, fontSize: 14 }}>
+                {form.description}
+              </p>
+            ) : null}
+
+            {form.instructions ? (
+              <div className="survey-section-banner" style={{ marginTop: 20 }}>
+                <p className="survey-section-title" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Info className="w-4 h-4" /> Instrucciones
+                </p>
+                <p className="survey-section-description" style={{ whiteSpace: "pre-wrap" }}>
+                  {form.instructions}
+                </p>
+              </div>
+            ) : null}
+
+            <div className="survey-grid" style={{ marginTop: 20 }}>
+              <div>
+                <p className="survey-label">Preguntas</p>
+                <p className="survey-question-text" style={{ fontSize: 18 }}>
+                  {allQuestions.length}
+                </p>
+              </div>
+              <div>
+                <p className="survey-label">Tiempo estimado</p>
+                <p className="survey-question-text" style={{ fontSize: 18, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Clock className="w-4 h-4" />~{Math.max(1, Math.round(allQuestions.length * 0.4))} min
+                </p>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 20 }}>
+              <label className="survey-label" htmlFor="respondent-code">
+                Código de participante (opcional)
+              </label>
+              <input
+                id="respondent-code"
+                type="text"
+                className="survey-input"
+                style={{ marginTop: 6 }}
+                placeholder="Déjalo vacío para responder de forma anónima"
+                value={respondentCode}
+                onChange={(e) => setRespondentCode(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="survey-footer" style={{ justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              className="survey-btn survey-btn-primary survey-btn--wide"
+              onClick={() => setStep("questions")}
+            >
+              Comenzar
+            </button>
+          </div>
+        </main>
+      </SurveyShell>
+    );
+  }
+
+  /* ── Completed ── */
+  if (step === "completed") {
+    return (
+      <SurveyShell theme={theme}>
+        <main className="survey-main">
+          <div className="survey-card" style={{ textAlign: "center" }}>
+            <div
+              aria-hidden="true"
+              style={{
+                width: 72,
+                height: 72,
+                borderRadius: "50%",
+                margin: "0 auto 20px",
+                display: "grid",
+                placeItems: "center",
+                background: "var(--survey-accent)",
+                color: "var(--survey-accent-text)",
+              }}
+            >
+              <Check className="w-8 h-8" strokeWidth={3} />
+            </div>
+            <h1 className="survey-question-text">¡Respuestas registradas!</h1>
+            <p className="survey-short-label" style={{ marginTop: 12, fontSize: 14 }}>
+              {form.thank_you_message ||
+                "Gracias por tu colaboración. Tu respuesta se guardó en la base de datos del estudio."}
+            </p>
+          </div>
+        </main>
+      </SurveyShell>
+    );
+  }
+
+  /* ── Questions: "all" layout ── */
+  if (theme.layout.questionsPerScreen === "all") {
+    return (
+      <SurveyShell theme={theme}>
+        <SurveyProgressHeader studyName={form.title} answered={answeredCount} total={allQuestions.length} />
+        <SurveyAllQuestionsView
+          kicker="Estudio científico"
+          title={form.title}
+          description={form.description}
+          sections={sections}
+          answers={answers}
+          onAnswerChange={setAnswer}
+          submitting={submitMutation.isPending}
+          error={error}
+          onSubmit={() => {
+            const missing = missingIn(allQuestions);
+            if (missing.length > 0) {
+              setError("Responde todas las preguntas obligatorias antes de enviar.");
+              return;
+            }
+            submitMutation.mutate();
+          }}
+        />
+      </SurveyShell>
+    );
+  }
+
+  /* ── Questions: "single" layout (one section per screen) ── */
+  const section = sections[sectionIndex];
+  const isLast = sectionIndex === sections.length - 1;
+
+  const goNext = () => {
+    const missing = missingIn(section.questions);
+    if (missing.length > 0) {
+      setError("Responde todas las preguntas obligatorias antes de continuar.");
       return;
     }
-    setValidationError(null);
-    if (currentSectionIndex < formSections.length - 1) {
-      setCurrentSectionIndex((prev) => prev + 1);
+    setError(null);
+    if (isLast) submitMutation.mutate();
+    else {
+      setSectionIndex((i) => i + 1);
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } else {
-      submitMutation.mutate({ respondent_code: respondentCode, answers: Object.values(answers) });
+    }
+  };
+  const goPrev = () => {
+    setError(null);
+    if (sectionIndex === 0) setStep("welcome");
+    else {
+      setSectionIndex((i) => i - 1);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
-  const handlePrev = () => {
-    setValidationError(null);
-    if (currentSectionIndex > 0) {
-      setCurrentSectionIndex((prev) => prev - 1);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } else {
-      setStep("welcome");
-    }
-  };
-
-  const totalQuestions = questions.length;
-
-  // ── WELCOME ────────────────────────────────────────────────────────────────
-  if (step === "welcome") {
-    return pageWrap(
-      <div
-        className="w-full max-w-xl rounded-[28px] overflow-hidden shadow-2xl"
-        style={{ background: p.cardBg, border: `1px solid ${p.cardBorder}` }}
-      >
-        <ColmenaGradientHeader theme={theme} eyebrow="Estudio científico activo" title={title} />
-        <div className="px-7 sm:px-10 pt-7 pb-9">
-          {description && (
-            <p className="text-sm sm:text-base leading-relaxed" style={{ color: p.text }}>
-              {description}
-            </p>
-          )}
-
-          {instructions && (
-            <div
-              className="mt-6 p-4 rounded-2xl"
-              style={{ background: p.isLight ? "#F8FAFC" : "rgba(255,255,255,0.03)", border: `1px solid ${p.cardBorder}` }}
-            >
-              <h4 className="text-xs font-bold uppercase tracking-widest flex items-center gap-2 mb-1.5" style={{ color: p.muted }}>
-                <Info className="w-3.5 h-3.5" style={{ color: p.primary }} />
-                Instrucciones
-              </h4>
-              <p className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: p.text }}>
-                {instructions}
+  return (
+    <SurveyShell theme={theme}>
+      <SurveyProgressHeader studyName={form.title} answered={answeredCount} total={allQuestions.length} />
+      <main className="survey-main">
+        <div className="survey-card">
+          <div className="survey-grid">
+            <div>
+              <p className="survey-label">
+                Sección {sectionIndex + 1} de {sections.length}
               </p>
+              {section.title ? <p className="survey-short-label">{section.title}</p> : null}
             </div>
-          )}
-
-          <div className="mt-8 grid gap-4 sm:grid-cols-2">
-            <div className="p-4 rounded-2xl" style={{ background: p.isLight ? "#F8FAFC" : "rgba(255,255,255,0.03)", border: `1px solid ${p.cardBorder}` }}>
-              <span className="text-[10px] uppercase tracking-wider block" style={{ color: p.muted }}>
-                Preguntas totales
-              </span>
-              <span className="text-lg font-bold" style={{ color: p.title }}>
-                {totalQuestions} ítems
-              </span>
-            </div>
-            <div className="p-4 rounded-2xl" style={{ background: p.isLight ? "#F8FAFC" : "rgba(255,255,255,0.03)", border: `1px solid ${p.cardBorder}` }}>
-              <span className="text-[10px] uppercase tracking-wider block" style={{ color: p.muted }}>
-                Tiempo estimado
-              </span>
-              <span className="text-lg font-bold flex items-center gap-1.5" style={{ color: p.title }}>
-                <Clock className="w-4 h-4" style={{ color: p.primary }} />~
-                {Math.max(1, Math.round(totalQuestions * 0.4))} min
-              </span>
+            <div className="flex flex-col gap-6">
+              {section.description ? (
+                <p className="survey-short-label">{section.description}</p>
+              ) : null}
+              {section.questions.map((question) => {
+                const answer = answers[question.id];
+                const isMissing = error !== null && question.is_required && !hasAnswer(question, answer);
+                return (
+                  <div key={question.id} className="flex flex-col gap-3">
+                    <p className="survey-question-text" style={{ fontSize: 16 }}>
+                      {question.label}
+                      {question.is_required ? " *" : ""}
+                    </p>
+                    {question.help_text ? (
+                      <p className="survey-short-label">{question.help_text}</p>
+                    ) : null}
+                    <SurveyQuestionRenderer
+                      question={question}
+                      answer={answer}
+                      onChange={(patch) => setAnswer(question.id, patch)}
+                    />
+                    {isMissing ? (
+                      <p className="survey-required-note">Esta pregunta es obligatoria.</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+              {error ? <p className="survey-error-note">{error}</p> : null}
             </div>
           </div>
-
-          <div className="mt-8 space-y-2">
-            <label className="text-xs font-bold uppercase tracking-widest" style={{ color: p.muted }}>
-              Código de participante (opcional)
-            </label>
-            <input
-              type="text"
-              placeholder="Escribe tu código o déjalo vacío para anónimo"
-              className="w-full h-12 px-4 rounded-md outline-none text-sm transition-colors"
-              style={{ background: p.inputBg, border: `1px solid ${p.inputBorder}`, color: p.inputText }}
-              value={respondentCode}
-              onChange={(e) => setRespondentCode(e.target.value)}
-              onFocus={(e) => (e.currentTarget.style.borderColor = p.primary)}
-              onBlur={(e) => (e.currentTarget.style.borderColor = p.inputBorder)}
-            />
-          </div>
-
+        </div>
+        <div className="survey-footer">
+          <button type="button" className="survey-btn survey-btn-secondary" onClick={goPrev}>
+            Atrás
+          </button>
           <button
-            onClick={() => setStep("questions")}
-            className="mt-8 w-full rounded-full font-bold text-base flex items-center justify-center gap-2 transition-transform duration-150 hover:scale-[1.015] active:scale-[0.99]"
-            style={{ background: p.primary, color: p.onPrimary, height: 52 }}
+            type="button"
+            className="survey-btn survey-btn-primary survey-btn--wide"
+            onClick={goNext}
+            disabled={submitMutation.isPending}
           >
-            Comenzar
-            <ChevronRight className="w-5 h-5" />
+            {submitMutation.isPending ? "Enviando…" : isLast ? "Finalizar" : "Continuar"}
           </button>
         </div>
-      </div>
-    );
-  }
-
-  // ── COMPLETED ───────────────────────────────────────────────────────────────
-  if (step === "completed") {
-    return pageWrap(
-      <div
-        className="max-w-md w-full rounded-[28px] p-8 text-center shadow-2xl"
-        style={{ background: p.cardBg, border: `1px solid ${p.cardBorder}` }}
-      >
-        <div
-          className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center"
-          style={{ background: p.gradient }}
-        >
-          <Check className="w-9 h-9" strokeWidth={3} style={{ color: p.onPrimary }} />
-        </div>
-        <h2 className="text-3xl font-extrabold mb-3" style={{ color: p.title }}>
-          ¡Respuestas registradas!
-        </h2>
-        <p className="text-sm leading-relaxed mb-8" style={{ color: p.text }}>
-          {thank_you_message ||
-            "Muchas gracias por tu colaboración. Tu respuesta ha sido integrada a la base de datos del estudio con éxito."}
-        </p>
-        <div
-          className="rounded-2xl px-5 py-4 inline-flex flex-col gap-1 items-center justify-center w-full"
-          style={{ background: p.isLight ? "#F8FAFC" : "rgba(255,255,255,0.03)", border: `1px solid ${p.cardBorder}` }}
-        >
-          <span className="text-[10px] uppercase tracking-widest" style={{ color: p.muted }}>
-            Estado de transmisión
-          </span>
-          <span className="text-xs font-bold flex items-center gap-1.5" style={{ color: p.primary }}>
-            <span className="w-2 h-2 rounded-full animate-ping" style={{ background: p.primary }} />
-            Conexión segura y sincronizada
-          </span>
-        </div>
-        <p className="mt-6 text-[10px]" style={{ color: p.muted }}>
-          ID de transmisión: {transmissionId}
-        </p>
-      </div>
-    );
-  }
-
-  // ── QUESTIONS (step-based, tarjeta COLMENA) ──────────────────────────────────
-  return pageWrap(
-    currentSection ? (
-      <ColmenaFormShell
-        theme={theme}
-        stepCurrent={currentSectionIndex + 1}
-        stepTotal={formSections.length}
-        stepLabels={formSections.map((s) => s.title)}
-        title={currentSection.title}
-        subtitle={currentSection.description}
-        onBack={handlePrev}
-        onNext={handleNext}
-        canBack
-        nextLabel={currentSectionIndex === formSections.length - 1 ? "Finalizar" : "Siguiente"}
-        nextDisabled={submitMutation.isPending}
-        nextLoading={submitMutation.isPending}
-        error={validationError}
-      >
-        {groupQuestionsForMatrix(currentSection.questions.map(toRenderField)).map((block, blockIdx) =>
-          block.kind === "matrix" ? (
-            <ColmenaLikertMatrix
-              key={`matrix-${blockIdx}`}
-              theme={theme}
-              fields={block.fields}
-              scaleOptions={block.scaleOptions}
-              answers={answers}
-              onChange={handleAnswerChange}
-            />
-          ) : (
-            <ColmenaQuestionField
-              key={block.field.id}
-              theme={theme}
-              field={block.field}
-              answer={answers[block.field.id]}
-              onChange={(partial) => handleAnswerChange(block.field.id, partial)}
-            />
-          )
-        )}
-      </ColmenaFormShell>
-    ) : (
-      <div style={{ color: p.muted }}>Este formulario no tiene preguntas.</div>
-    )
+      </main>
+    </SurveyShell>
   );
 }
+
+export default PublicFormPage;

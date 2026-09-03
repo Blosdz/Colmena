@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
+import bcrypt
 import httpx
+import jwt
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.user import User
+
+JWT_ALGORITHM = "HS256"
 
 
 class AuthService:
@@ -25,6 +31,124 @@ class AuthService:
     @property
     def _thesis_base_url(self) -> str:
         return self.settings.thesis_api_base_url.rstrip("/")
+
+    # ── Login standalone de Colmena (email + contraseña) ──────────────────
+
+    @staticmethod
+    def _hash_password(password: str) -> str:
+        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+    @staticmethod
+    def _verify_password(password: str, password_hash: str) -> bool:
+        try:
+            return bcrypt.checkpw(password.encode(), password_hash.encode())
+        except ValueError:
+            return False
+
+    def _issue_token(self, user: User) -> str:
+        return self._encode({"sub": user.id, "typ": "colmena"}, self.settings.jwt_expire_minutes)
+
+    def _encode(self, claims: dict, expire_minutes: int) -> str:
+        now = datetime.now(timezone.utc)
+        return jwt.encode(
+            {**claims, "iat": now, "exp": now + timedelta(minutes=expire_minutes)},
+            self.settings.jwt_secret,
+            algorithm=JWT_ALGORITHM,
+        )
+
+    def _find_by_email(self, email: str) -> User | None:
+        return self.db.scalar(
+            select(User).where(
+                func.lower(User.email) == email.strip().lower(),
+                User.deleted_at.is_(None),
+            )
+        )
+
+    def register_local(self, name: str, email: str, password: str) -> tuple[User, str]:
+        email = email.strip().lower()
+        if self._find_by_email(email) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya existe una cuenta con este correo.",
+            )
+        user = User(
+            name=name.strip(),
+            username=email.split("@")[0] or email,
+            email=email,
+            status="active",
+            password_hash=self._hash_password(password),
+        )
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+        return user, self._issue_token(user)
+
+    def login_local(self, email: str, password: str) -> tuple[User, str]:
+        user = self._find_by_email(email)
+        if user is None or not user.password_hash or not self._verify_password(
+            password, user.password_hash
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Correo o contraseña incorrectos.",
+            )
+        return user, self._issue_token(user)
+
+    def request_password_reset(self, email: str) -> str | None:
+        """Devuelve un enlace de reset si hay una cuenta local con ese correo; si no, None.
+
+        El router nunca revela cuál de los dos casos ocurrió (no enumeración de cuentas).
+        Sin servicio de correo: en desarrollo el enlace se devuelve directo.
+        """
+        user = self._find_by_email(email)
+        if user is None or not user.password_hash:
+            return None
+        token = self._encode({"sub": user.id, "typ": "pwreset"}, 30)
+        base = self.settings.frontend_base_url.rstrip("/")
+        return f"{base}/reset-password?token={token}"
+
+    def reset_password(self, token: str, new_password: str) -> tuple[User, str]:
+        try:
+            payload = jwt.decode(
+                token, self.settings.jwt_secret, algorithms=[JWT_ALGORITHM]
+            )
+        except jwt.PyJWTError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El enlace de recuperación no es válido o ya expiró.",
+            )
+        if payload.get("typ") != "pwreset":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El enlace de recuperación no es válido.",
+            )
+        user = self.db.get(User, payload.get("sub"))
+        if user is None or user.deleted_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="La cuenta ya no existe."
+            )
+        user.password_hash = self._hash_password(new_password)
+        self.db.commit()
+        self.db.refresh(user)
+        return user, self._issue_token(user)
+
+    def _resolve_local_token(self, token: str) -> User | None:
+        """Devuelve el usuario si `token` es un JWT válido emitido por Colmena; si no, None."""
+        try:
+            payload = jwt.decode(
+                token, self.settings.jwt_secret, algorithms=[JWT_ALGORITHM]
+            )
+        except jwt.PyJWTError:
+            return None
+        if payload.get("typ") != "colmena":
+            return None
+        user = self.db.get(User, payload.get("sub"))
+        if user is None or user.deleted_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="La cuenta ya no existe.",
+            )
+        return user
 
     def _fetch_appthesis_identity(self, token: str) -> tuple[dict, str | None]:
         headers = {"Authorization": f"Bearer {token}"}
@@ -109,7 +233,16 @@ class AuthService:
         return self._upsert_user(usuario, thesis_id)
 
     def resolve_current_user(self, token: str) -> User:
-        """Valida el JWT de AppThesis y devuelve (creando/actualizando) el usuario local."""
+        """Resuelve el usuario autenticado.
+
+        Primero intenta como JWT propio de Colmena (login standalone). Si no lo es,
+        cae al cross-login con AppThesis: valida el token contra ``/auth/me`` y
+        crea/actualiza el usuario espejo.
+        """
+        local_user = self._resolve_local_token(token)
+        if local_user is not None:
+            return local_user
+
         usuario, thesis_id = self._fetch_appthesis_identity(token)
         user, _ = self._upsert_user(usuario, thesis_id)
         return user

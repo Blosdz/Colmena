@@ -19,7 +19,11 @@ import { DimensionAssignmentPanel } from "../components/forms/DimensionAssignmen
 import { BaremoAutoBuilder } from "../components/forms/BaremoAutoBuilder";
 import { ExcelDataUploader } from "../components/forms/ExcelDataUploader";
 import { ParticipantDataPanel } from "../components/project/ParticipantDataPanel";
-import { PARTICIPANT_PRESETS } from "../components/forms-wizard/scalePresets";
+import {
+  PARTICIPANT_PRESETS,
+  VARIABLE_PRESETS,
+  exogenousOptionsFromPreset,
+} from "../components/forms-wizard/scalePresets";
 import {
   useProjectDraft,
   type VariableTab,
@@ -222,6 +226,41 @@ export function ProjectCreateWizard() {
               });
             }
             
+            // Rehidratar variables exógenas (form-wide, sin instrumento) en la
+            // primera variable del formulario, para no perderlas al re-guardar.
+            if (instrumentsResponse.items[0]?.id === instrument.id) {
+              const exoQuestions = questionsResponse.items.filter(
+                (q) => q.question_role === "exogenous",
+              );
+              for (const q of exoQuestions) {
+                const exoOpts = await listQuestionOptions(q.id);
+                items.push({
+                  id: q.id,
+                  text: q.label,
+                  code: q.code || "",
+                  dimensionName: "",
+                  reversed: false,
+                  required: q.is_required,
+                  scored: false,
+                  isImportance: false,
+                  type: q.question_type,
+                  scale: "",
+                  status: "ready",
+                  responseKind: "exogenous",
+                  exogenousType:
+                    q.question_type === "number"
+                      ? "number"
+                      : q.question_type === "text_short"
+                        ? "text_short"
+                        : "single_choice",
+                  exogenousOptions: exoOpts.items.map((o) => ({
+                    label: o.label,
+                    value: parseFloat(o.value) || 0,
+                  })),
+                });
+              }
+            }
+
             // Fetch scoring configs and bands
             const configs = await apiClient.get<{ items: any[] }>(`/api/v1/forms/${form.id}/scoring/configs`);
             
@@ -340,7 +379,8 @@ export function ProjectCreateWizard() {
       console.warn("Error clearing scoring configs:", e);
     }
 
-    // 2. Delete questions
+    // 2. Delete questions (se recrean desde el borrador, exógenas incluidas —
+    // el wizard las rehidrata al abrir un proyecto existente).
     try {
       const qResponse = await listQuestions(formId);
       for (const q of qResponse.items) {
@@ -548,10 +588,70 @@ export function ProjectCreateWizard() {
         for (let qIdx = 0; qIdx < variable.items.length; qIdx++) {
           const item = variable.items[qIdx];
           setSavingStatus(`Guardando ítem ${qIdx + 1}/${variable.items.length} en la base de datos...`);
+          const dimensionId = item.dimensionName ? dimensionIdMap[item.dimensionName] : undefined;
 
+          // ── Variable exógena (Sexo, Edad…) ──
+          // Como en COLMENA 2.0: la variable exógena se registra como su PROPIO
+          // project_variable (role sociodemográfico, clasificación "segment",
+          // medición directa) + una pregunta no puntuada ligada a ella y SIN
+          // instrumento, para que sirva de segmento comparable en el análisis.
+          if (item.responseKind === "exogenous") {
+            const exoType = item.exogenousType ?? "single_choice";
+            const exoName = item.text.trim() || item.code || `Variable exógena ${qIdx + 1}`;
+            const exoDataType = exoType === "number" ? "numeric" : exoType === "text_short" ? "text" : "categorical";
+
+            let exoVar = existingVariablesResponse.items.find(
+              (v) => v.name.trim().toLowerCase() === exoName.toLowerCase(),
+            );
+            if (!exoVar) {
+              exoVar = await createProjectVariable(projectId, {
+                name: exoName,
+                code: item.code || null,
+                description: null,
+                variable_role: "sociodemographic",
+                variable_classification: "segment",
+                measurement_mode: "direct",
+                measurement_level: exoType === "number" ? "ratio" : "nominal",
+                data_type: exoDataType,
+                is_required_for_analysis: false,
+              });
+              existingVariablesResponse.items.push(exoVar);
+            }
+
+            const exoQuestion = await createQuestion(formId, {
+              label: item.text,
+              question_type: exoType,
+              instrument_id: null,
+              dimension_id: null,
+              project_variable_id: exoVar.id,
+              scale_id: null,
+              measurement_level: exoType === "number" ? "ratio" : "nominal",
+              data_type: exoDataType === "text" ? "text" : exoType === "number" ? "numeric" : "categorical",
+              code: item.code || `X${qIdx + 1}`,
+              help_text: "",
+              question_role: "exogenous",
+              is_required: item.required ?? true,
+              is_scored: false,
+              is_reverse_scored: false,
+              sort_order: qIdx,
+            });
+            if (exoType === "single_choice") {
+              const exoOptions = (item.exogenousOptions ?? []).filter((o) => o.label.trim());
+              for (let optIdx = 0; optIdx < exoOptions.length; optIdx++) {
+                await createQuestionOption(exoQuestion.id, {
+                  label: exoOptions[optIdx].label,
+                  value: String(exoOptions[optIdx].value),
+                  score: exoOptions[optIdx].value,
+                  sort_order: optIdx,
+                });
+              }
+            }
+            continue;
+          }
+
+          // ── Ítem del constructo (Likert) ──
           // Normalizar: 'radio' no es aceptado por el formulario público; usar 'likert'
           const mappedType = (item.type === "radio" ? "likert" : item.type) || "likert";
-          const dimensionId = item.dimensionName ? dimensionIdMap[item.dimensionName] : undefined;
 
           const question = await createQuestion(formId, {
             label: item.text,
@@ -593,8 +693,8 @@ export function ProjectCreateWizard() {
             scoring_level: "instrument",
             aggregation_method: "sum",
             missing_policy: "allow_partial",
-            score_min: variable.items.length * scaleMin,
-            score_max: variable.items.length * scaleMax,
+            score_min: 0,
+            score_max: 100,
           });
 
           for (const [bandIdx, band] of variable.baremos.entries()) {
@@ -615,15 +715,14 @@ export function ProjectCreateWizard() {
           if (dim.baremos.length > 0) {
             setSavingStatus(`Configurando baremos de dimensión: ${dim.name}...`);
             const dimId = dimensionIdMap[dim.name];
-            const dimItemCount = variable.items.filter((i) => i.dimensionName === dim.name).length;
             const config = await apiClient.post<{ id: string }>(`/api/v1/forms/${formId}/scoring/configs`, {
               name: `Baremos - ${dim.name}`,
               dimension_id: dimId,
               scoring_level: "dimension",
               aggregation_method: "sum",
               missing_policy: "allow_partial",
-              score_min: dimItemCount * scaleMin,
-              score_max: dimItemCount * scaleMax,
+              score_min: 0,
+              score_max: 100,
             });
 
             for (const [bandIdx, band] of dim.baremos.entries()) {
@@ -682,6 +781,28 @@ export function ProjectCreateWizard() {
       scored: true,
       isImportance: false,
       status: "review",
+    };
+    store.addItems(activeVariable.id, [newItem]);
+  };
+
+  const handleAddExogenousItem = () => {
+    const nextIndex = activeVariable.items.length + 1;
+    const sexo = VARIABLE_PRESETS.find((p) => p.id === "sexo");
+    const newItem: ParsedQuestion = {
+      id: crypto.randomUUID(),
+      code: `X${nextIndex}`,
+      text: sexo?.name ?? "Variable exógena",
+      dimensionName: "",
+      type: "single_choice",
+      scale: "",
+      reversed: false,
+      required: true,
+      scored: false,
+      isImportance: false,
+      status: "review",
+      responseKind: "exogenous",
+      exogenousType: "single_choice",
+      exogenousOptions: sexo ? exogenousOptionsFromPreset(sexo) : [{ label: "Opción 1", value: 1 }],
     };
     store.addItems(activeVariable.id, [newItem]);
   };
@@ -966,6 +1087,7 @@ export function ProjectCreateWizard() {
                   onUpdateItem={handleUpdateItem}
                   onRemoveItem={handleRemoveItem}
                   onAddManualItem={handleAddManualItem}
+                  onAddExogenousItem={handleAddExogenousItem}
                   onAddQuickDimension={handleAddQuickDimension}
                   onUpdateScale={(scale) => store.updateScale(activeVariable.id, scale)}
                 />

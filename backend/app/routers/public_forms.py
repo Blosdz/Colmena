@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -20,10 +20,18 @@ def get_public_form(
     return service.get_public_form_by_slug(public_slug)
 
 
+def _client_ip(request: Request) -> str | None:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip() or None
+    return request.client.host if request.client else None
+
+
 @router.post("/{public_slug}/responses", response_model=PublicFormResponseRead, status_code=201)
 def submit_public_response(
     public_slug: str,
     payload: PublicFormResponseCreate,
+    request: Request,
     service: PublicFormService = Depends(get_public_form_service),
 ) -> PublicFormResponseRead:
-    return service.submit_public_response(public_slug, payload)
+    return service.submit_public_response(public_slug, payload, client_ip=_client_ip(request))

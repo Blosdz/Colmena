@@ -2,19 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { authApi } from "../api/auth";
-import { env } from "../config/env";
 import { isAuthenticated, setStoredToken, setStoredUser } from "../auth/session";
 
-function HexagonIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 2 21 7v10l-9 5-9-5V7l9-5z" />
-    </svg>
-  );
-}
-
-export function LoginPage() {
+export function SignupPage() {
   const navigate = useNavigate();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -29,24 +21,24 @@ export function LoginPage() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
+    if (password.length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
     setSubmitting(true);
     try {
-      const res = await authApi.login({ email: email.trim(), password });
+      const res = await authApi.register({ name: name.trim(), email: email.trim(), password });
       setStoredToken(res.token);
       setStoredUser(res.user);
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo iniciar sesión.");
+      setError(err instanceof Error ? err.message : "No se pudo crear la cuenta.");
       setSubmitting(false);
     }
   };
 
-  const handleConnect = () => {
-    const callback = `${window.location.origin}/auth/callback`;
-    const base = env.appThesisSsoUrl;
-    const separator = base.includes("?") ? "&" : "?";
-    window.location.href = `${base}${separator}redirect=${encodeURIComponent(callback)}`;
-  };
+  const inputClass =
+    "mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-[#E6C200] focus:ring-2 focus:ring-[#FFD700]/40";
 
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-white to-blue-50 px-4">
@@ -60,13 +52,22 @@ export function LoginPage() {
 
       <div className="relative z-10 w-full max-w-[480px] rounded-2xl border border-white/70 bg-white/70 p-8 shadow-[0_28px_74px_rgba(15,23,42,0.14)] backdrop-blur-xl sm:p-10">
         <div className="mb-8 text-center">
-          <h1 className="mb-2 text-2xl font-semibold tracking-tight text-slate-900">
-            Bienvenido de nuevo
-          </h1>
-          <p className="text-sm text-slate-500">Inicia sesión para continuar con tu tesis</p>
+          <h1 className="mb-2 text-2xl font-semibold tracking-tight text-slate-900">Crea tu cuenta</h1>
+          <p className="text-sm text-slate-500">Empieza a recolectar y analizar los datos de tu tesis</p>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Nombre
+            <input
+              type="text"
+              required
+              autoComplete="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={inputClass}
+            />
+          </label>
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Correo
             <input
@@ -75,7 +76,7 @@ export function LoginPage() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-[#E6C200] focus:ring-2 focus:ring-[#FFD700]/40"
+              className={inputClass}
             />
           </label>
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -83,10 +84,11 @@ export function LoginPage() {
             <input
               type="password"
               required
-              autoComplete="current-password"
+              minLength={8}
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-[#E6C200] focus:ring-2 focus:ring-[#FFD700]/40"
+              className={inputClass}
             />
           </label>
 
@@ -97,37 +99,19 @@ export function LoginPage() {
             disabled={submitting}
             className="mt-1 h-11 w-full rounded-lg border-2 border-[#E6C200] bg-[#FFD700] text-sm font-semibold uppercase tracking-widest text-[#191b23] shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-60"
           >
-            {submitting ? "Entrando…" : "Iniciar sesión"}
+            {submitting ? "Creando…" : "Crear cuenta"}
           </button>
         </form>
 
-        <div className="mt-4 flex flex-col items-center gap-1 text-sm text-slate-500">
-          <Link to="/forgot-password" className="hover:text-[#191b23] hover:underline">
-            ¿Olvidaste tu contraseña?
+        <p className="mt-4 text-center text-sm text-slate-500">
+          ¿Ya tienes cuenta?{" "}
+          <Link to="/login" className="font-semibold text-[#191b23] underline">
+            Inicia sesión
           </Link>
-          <p>
-            ¿No tienes cuenta?{" "}
-            <Link to="/signup" className="font-semibold text-[#191b23] underline">
-              Regístrate
-            </Link>
-          </p>
-        </div>
-
-        <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-widest text-slate-400">
-          <span className="h-px flex-1 bg-slate-200" />o<span className="h-px flex-1 bg-slate-200" />
-        </div>
-
-        <button
-          type="button"
-          onClick={handleConnect}
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-lg border-2 border-slate-300 bg-white text-sm font-semibold uppercase tracking-widest text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98]"
-        >
-          <HexagonIcon />
-          Continuar con AppThesis
-        </button>
+        </p>
       </div>
     </main>
   );
 }
 
-export default LoginPage;
+export default SignupPage;

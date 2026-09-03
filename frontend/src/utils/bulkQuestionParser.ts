@@ -1,3 +1,5 @@
+export type ExogenousOption = { label: string; value: number };
+
 export type ParsedQuestion = {
   id: string;
   code: string;
@@ -10,6 +12,11 @@ export type ParsedQuestion = {
   scored: boolean;
   isImportance: boolean;
   status: "ready" | "missing_dimension" | "missing_scale" | "empty_text" | "review";
+  /** "scale" = escala Likert compartida (por defecto); "exogenous" = respuesta propia del ítem (p. ej. Sexo). */
+  responseKind?: "scale" | "exogenous";
+  /** Solo si responseKind === "exogenous". */
+  exogenousType?: "single_choice" | "number" | "text_short";
+  exogenousOptions?: ExogenousOption[];
 };
 
 export function parseBulkQuestions(rawText: string): ParsedQuestion[] {

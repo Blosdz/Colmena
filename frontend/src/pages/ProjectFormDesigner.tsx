@@ -1,75 +1,63 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Palette,
-  LayoutTemplate,
-  Plus,
-  Save,
-  CheckCircle2,
-  Trash2,
-  User,
-  Briefcase,
-  GraduationCap,
-  Calendar,
-  Image as ImageIcon,
-  Copy,
-  Check
-} from "lucide-react";
+import { Palette, LayoutTemplate, Save, CheckCircle2, Copy, Check } from "lucide-react";
 
 import { getProject } from "../api/projects";
 import { buildPublicFormUrl } from "../config/env";
-import { listProjectForms, listQuestions, createQuestion, createQuestionOption, listQuestionOptions } from "../api/forms";
+import { listProjectForms, listQuestions, listQuestionOptions } from "../api/forms";
 import type { FormQuestionOption } from "../types/form";
+import type { PublicFormOptionRead, PublicFormQuestionRead } from "../types/publicForm";
 import { useActiveStudy } from "../components/study/useActiveStudy";
 import { PageHeader } from "../components/layout/PageHeader";
 import { LoadingState } from "../components/ui/LoadingState";
 import { ErrorState } from "../components/ui/ErrorState";
 import { apiClient } from "../api/client";
 import {
-  ColmenaFormShell,
-  ColmenaQuestionField,
-  ColmenaLikertMatrix,
-  groupQuestionsForMatrix,
-  useResolvedFormTheme,
-  DEFAULT_PRIMARY_COLOR,
-  SYSTEM_BG,
-  type FormTheme,
-  type RenderField,
-} from "../components/forms/FormSurface";
+  SurveyShell,
+  SurveyProgressHeader,
+  SurveyQuestionRenderer,
+} from "../components/forms/survey/SurveyKit";
+import {
+  resolveSurveyTheme,
+  getSurveySkin,
+  SURVEY_SKINS,
+  EDITABLE_SURVEY_COLORS,
+  QUESTIONS_PER_SCREEN_OPTIONS,
+  ALIGN_OPTIONS,
+  type SurveyTheme,
+} from "../design/surveyThemes";
 
-type ExogenousField = {
-  id: string;
-  label: string;
-  type: "text" | "select" | "number" | "date";
-  options?: string[];
-};
+const CHOICE_TYPES = ["likert", "single_choice", "multiple_choice", "dropdown", "boolean"];
 
-const THEME_COLORS = [
-  { name: "Amarillo", value: "#F5B21A" },
-  { name: "Naranja", value: "#FF6A2A" },
-  { name: "Turquesa", value: "#11B7B2" },
-  { name: "Grafito", value: "#1C1F24" },
-];
-
-const PREDEFINED_FIELDS = [
-  { icon: User, label: "Sexo", type: "select" as const, options: ["Masculino", "Femenino", "Prefiero no decirlo"] },
-  { icon: Calendar, label: "Edad", type: "number" as const },
-  { icon: Briefcase, label: "Ocupación / Cargo", type: "text" as const },
-  { icon: GraduationCap, label: "Nivel de Estudios", type: "select" as const, options: ["Básico", "Medio", "Superior", "Posgrado"] },
-];
+/** Convierte un ítem del instrumento a la forma que espera SurveyQuestionRenderer. */
+function toPreviewQuestion(
+  id: string,
+  label: string,
+  type: string,
+  options: PublicFormOptionRead[] | undefined,
+): PublicFormQuestionRead {
+  return {
+    id,
+    label,
+    question_type: type,
+    question_role: "item",
+    measurement_level: "ordinal",
+    data_type: "numeric",
+    is_required: true,
+    is_scored: false,
+    is_reverse_scored: false,
+    sort_order: 0,
+    options: options ?? [],
+  };
+}
 
 export function ProjectFormDesigner() {
   const { projectId = "" } = useParams();
   useActiveStudy(projectId);
 
-  const [theme, setTheme] = useState<FormTheme>({
-    primaryColor: DEFAULT_PRIMARY_COLOR,
-    backgroundColor: SYSTEM_BG,
-    fontFamily: "Inter, sans-serif",
-  });
-
-  const [fields, setFields] = useState<ExogenousField[]>([]);
+  const [theme, setTheme] = useState<SurveyTheme>(() => resolveSurveyTheme(undefined));
+  const [previewAnswers, setPreviewAnswers] = useState<Record<string, Record<string, unknown>>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
@@ -94,29 +82,25 @@ export function ProjectFormDesigner() {
     enabled: Boolean(primaryForm?.id),
   });
 
-  // "system" background follows the OS light/dark preference for the preview.
-  const resolvedTheme = useResolvedFormTheme(theme);
+  const formQuestions = questionsQuery.data?.items || [];
+  const validQuestions = formQuestions.filter(
+    (q) => q.question_type !== "exogenous" && q.question_role !== "exogenous",
+  );
 
-  // Ids of the choice-type items shown in the preview (first 3), so we can fetch
-  // their real response-scale options (value + classification label).
-  const previewChoiceIds = useMemo(() => {
-    const items = questionsQuery.data?.items || [];
-    return items
-      .filter((q) => q.question_type !== "exogenous" && q.question_role !== "exogenous")
-      .slice(0, 3)
-      .filter((q) =>
-        ["likert", "single_choice", "multiple_choice", "dropdown", "boolean"].includes(q.question_type)
-      )
-      .map((q) => q.id);
-  }, [questionsQuery.data]);
+  const previewChoiceIds = useMemo(
+    () =>
+      validQuestions
+        .slice(0, 3)
+        .filter((q) => CHOICE_TYPES.includes(q.question_type))
+        .map((q) => q.id),
+    [validQuestions],
+  );
 
   const optionsQuery = useQuery({
     queryKey: ["preview-question-options", primaryForm?.id, previewChoiceIds],
     queryFn: async () => {
       const entries = await Promise.all(
-        previewChoiceIds.map(
-          async (id) => [id, (await listQuestionOptions(id)).items] as const
-        )
+        previewChoiceIds.map(async (id) => [id, (await listQuestionOptions(id)).items] as const),
       );
       return Object.fromEntries(entries) as Record<string, FormQuestionOption[]>;
     },
@@ -124,17 +108,11 @@ export function ProjectFormDesigner() {
   });
   const optionsMap = optionsQuery.data || {};
 
-  // Hydrate designer settings from primaryForm.metadata_json
+  // Hydrate theme from metadata_json (soporta el formato viejo del diseñador).
   useEffect(() => {
-    if (primaryForm && primaryForm.metadata_json) {
+    if (primaryForm?.metadata_json) {
       try {
-        const meta = JSON.parse(primaryForm.metadata_json);
-        if (meta.theme) {
-          setTheme(meta.theme);
-        }
-        if (meta.exogenous_fields) {
-          setFields(meta.exogenous_fields);
-        }
+        setTheme(resolveSurveyTheme(JSON.parse(primaryForm.metadata_json).theme));
       } catch (e) {
         console.error("Error parsing form metadata_json:", e);
       }
@@ -144,29 +122,17 @@ export function ProjectFormDesigner() {
   if (projectQuery.isLoading || formsQuery.isLoading) {
     return <LoadingState label="Cargando entorno de diseño..." />;
   }
-
   if (projectQuery.isError) {
     return <ErrorState message="Error al cargar el proyecto." />;
   }
 
-  const addField = (fieldInfo: typeof PREDEFINED_FIELDS[0]) => {
-    setFields((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        label: fieldInfo.label,
-        type: fieldInfo.type,
-        options: fieldInfo.options,
-      },
-    ]);
-  };
+  const skinDef = getSurveySkin(theme.skin);
 
-  const removeField = (id: string) => {
-    setFields((prev) => prev.filter((f) => f.id !== id));
-  };
+  const setColor = (key: string, hex: string) =>
+    setTheme((t) => ({ ...t, colors: { ...t.colors, [key]: hex } }));
+  const selectSkin = (skinId: SurveyTheme["skin"]) =>
+    setTheme((t) => ({ ...t, skin: skinId, colors: getSurveySkin(skinId).defaultColors }));
 
-  // Enlace público real del formulario (accesible vía AppThesis como tenant).
-  // Solo existe cuando el formulario está publicado (tiene public_slug).
   const hasPublicUrl = Boolean(primaryForm?.public_slug);
   const publicFormUrl = hasPublicUrl
     ? buildPublicFormUrl(primaryForm!.public_slug!)
@@ -175,9 +141,7 @@ export function ProjectFormDesigner() {
   const handleCopyUrl = async () => {
     if (!hasPublicUrl) return;
     try {
-      if (navigator?.clipboard) {
-        await navigator.clipboard.writeText(publicFormUrl);
-      }
+      if (navigator?.clipboard) await navigator.clipboard.writeText(publicFormUrl);
       setUrlCopied(true);
       setTimeout(() => setUrlCopied(false), 2000);
     } catch (err) {
@@ -189,63 +153,16 @@ export function ProjectFormDesigner() {
     if (!primaryForm) return;
     setIsSaving(true);
     try {
-      // 1. Save theme & fields in Form.metadata_json
-      const metadata = {
-        theme,
-        exogenous_fields: fields,
-      };
+      // Conserva cualquier otra clave que ya viviera en metadata_json.
+      let existing: Record<string, unknown> = {};
+      try {
+        existing = primaryForm.metadata_json ? JSON.parse(primaryForm.metadata_json) : {};
+      } catch {
+        existing = {};
+      }
       await apiClient.patch(`/api/v1/forms/${primaryForm.id}`, {
-        metadata_json: JSON.stringify(metadata),
+        metadata_json: JSON.stringify({ ...existing, theme }),
       });
-
-      // 2. Fetch current questions to clean up old exogenous questions
-      const qResponse = await listQuestions(primaryForm.id);
-      const oldExogenous = qResponse.items.filter(
-        q => q.question_role === "exogenous" || q.question_type === "exogenous"
-      );
-
-      // Delete old ones
-      for (const q of oldExogenous) {
-        await apiClient.delete(`/api/v1/form-questions/${q.id}`);
-      }
-
-      // 3. Create new exogenous questions in form_questions table
-      for (let idx = 0; idx < fields.length; idx++) {
-        const field = fields[idx];
-        const mappedType =
-          field.type === "select"
-            ? "dropdown"
-            : field.type === "text"
-            ? "text_short"
-            : field.type; // number, date, etc.
-
-        const question = await createQuestion(primaryForm.id, {
-          label: field.label,
-          question_type: mappedType,
-          question_role: "exogenous",
-          measurement_level: field.type === "select" ? "nominal" : "interval",
-          data_type: field.type === "number" ? "numeric" : "text",
-          is_required: true,
-          is_scored: false,
-          is_reverse_scored: false,
-          sort_order: -100 + idx, // place them at the beginning of the form
-          help_text: "Pregunta sociodemográfica exógena",
-        });
-
-        // If it has options, create option records
-        if (field.options && field.options.length > 0) {
-          for (let optIdx = 0; optIdx < field.options.length; optIdx++) {
-            const opt = field.options[optIdx];
-            await createQuestionOption(question.id, {
-              label: opt,
-              value: opt,
-              score: 0.0,
-              sort_order: optIdx,
-            });
-          }
-        }
-      }
-
       setIsSaving(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -255,14 +172,22 @@ export function ProjectFormDesigner() {
     }
   };
 
-  const formQuestions = questionsQuery.data?.items || [];
-  const validQuestions = formQuestions.filter((q) => q.question_type !== "exogenous" && q.question_role !== "exogenous");
+  const previewQuestions: PublicFormQuestionRead[] = validQuestions.slice(0, 4).map((q) => {
+    const real = optionsMap[q.id];
+    const isChoice = CHOICE_TYPES.includes(q.question_type);
+    const opts: PublicFormOptionRead[] | undefined = real
+      ? real.map((o, i) => ({ id: o.id, label: o.label, value: o.value, sort_order: i }))
+      : isChoice
+        ? [1, 2, 3, 4, 5].map((n) => ({ id: `${q.id}-${n}`, label: String(n), value: String(n), sort_order: n }))
+        : undefined;
+    return toPreviewQuestion(q.id, q.label, q.question_type, opts);
+  });
 
   return (
-    <div className="flex h-full flex-col gap-6 p-6 animate-colmena-fade-in">
+    <div className="flex h-[calc(100vh-64px)] min-h-0 flex-col gap-5 overflow-hidden p-6 animate-colmena-fade-in">
       <PageHeader
         title="Diseño del Formulario"
-        description="Agrega variables sociodemográficas y personaliza la apariencia visual de tu instrumento."
+        description="Elige cómo se ve la encuesta para quien la responde y ajusta sus colores."
         actions={
           <button
             onClick={handleSave}
@@ -282,132 +207,109 @@ export function ProjectFormDesigner() {
       />
 
       <div className="flex flex-1 min-h-0 gap-6">
-        {/* Sidebar Tools */}
-        <div className="w-[320px] shrink-0 flex flex-col gap-5 overflow-y-auto pr-2 pb-8">
-          
-          {/* Sociodemographics */}
-          <section className="bg-white rounded-2xl border border-border p-5 shadow-sm space-y-4">
-            <div className="flex items-center gap-2 text-dark font-semibold">
-              <User className="w-5 h-5 text-amber" />
-              <h3>Variables Exógenas</h3>
-            </div>
-            <p className="text-xs text-muted leading-relaxed">
-              Haz clic para añadir preguntas demográficas al inicio de tu formulario.
-            </p>
-            <div className="grid grid-cols-1 gap-2">
-              {PREDEFINED_FIELDS.map((field) => (
-                <button
-                  key={field.label}
-                  onClick={() => addField(field)}
-                  className="flex items-center justify-between p-3 rounded-xl border border-border bg-[#FCFCFB] hover:border-amber/40 hover:bg-amber/5 transition-all group text-left"
-                >
-                  <div className="flex items-center gap-3">
-                    <field.icon className="w-4 h-4 text-muted group-hover:text-amber" />
-                    <span className="text-sm font-medium text-dark">{field.label}</span>
-                  </div>
-                  <Plus className="w-4 h-4 text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
-              ))}
-              <button className="flex items-center justify-center gap-2 p-3 rounded-xl border border-dashed border-border text-sm font-medium text-muted hover:border-dark hover:text-dark transition-all mt-2">
-                <Plus className="w-4 h-4" />
-                Crear campo personalizado
-              </button>
-            </div>
-          </section>
-
-          {/* Theme Settings */}
+        {/* Sidebar */}
+        <div className="w-[340px] shrink-0 flex flex-col gap-5 overflow-y-auto min-h-0 pr-2 pb-4">
           <section className="bg-white rounded-2xl border border-border p-5 shadow-sm space-y-5">
             <div className="flex items-center gap-2 text-dark font-semibold">
               <Palette className="w-5 h-5 text-amber" />
               <h3>Apariencia</h3>
             </div>
-            
-            <div className="space-y-3">
-              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Color Principal</label>
-              <div className="flex flex-wrap items-center gap-3">
-                {THEME_COLORS.map((color) => (
-                  <button
-                    key={color.name}
-                    onClick={() => setTheme({ ...theme, primaryColor: color.value })}
-                    className={`w-8 h-8 rounded-full border-2 transition-all ${
-                      theme.primaryColor === color.value ? "border-dark scale-110 shadow-md" : "border-transparent"
-                    }`}
-                    style={{ backgroundColor: color.value }}
-                    title={color.name}
-                  />
-                ))}
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Estilo</label>
+              <div className="grid grid-cols-1 gap-2">
+                {Object.values(SURVEY_SKINS).map((skin) => {
+                  const active = theme.skin === skin.id;
+                  return (
+                    <button
+                      key={skin.id}
+                      type="button"
+                      onClick={() => selectSkin(skin.id)}
+                      className={`flex flex-col gap-2 rounded-xl border p-3 text-left transition-colors ${
+                        active ? "border-amber bg-amber/5" : "border-border hover:border-amber/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-dark">{skin.label}</span>
+                        {active && <Check className="w-4 h-4 text-amber" strokeWidth={3} />}
+                      </div>
+                      <p className="text-xs text-muted leading-4">{skin.description}</p>
+                      <div className="flex items-center gap-1.5">
+                        {Object.values(skin.defaultColors).map((hex) => (
+                          <span key={hex} className="h-4 w-4 rounded-full border border-black/10" style={{ background: hex }} />
+                        ))}
+                        <span className="ml-1 text-[11px] text-muted">Tipografía {skin.fontLabel}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Colores</label>
+              {EDITABLE_SURVEY_COLORS.map(({ key, label }) => (
                 <label
-                  title="Color personalizado"
-                  className="relative w-8 h-8 rounded-full border-2 border-dashed border-border flex items-center justify-center cursor-pointer hover:border-amber transition-all overflow-hidden"
-                  style={
-                    THEME_COLORS.every((c) => c.value !== theme.primaryColor)
-                      ? { borderStyle: "solid", borderColor: "#111111", transform: "scale(1.1)", backgroundColor: theme.primaryColor }
-                      : undefined
-                  }
+                  key={key}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2"
                 >
-                  {THEME_COLORS.every((c) => c.value !== theme.primaryColor) ? null : (
-                    <Palette className="w-4 h-4 text-muted" />
-                  )}
+                  <span className="text-sm text-dark">{label}</span>
                   <input
                     type="color"
-                    value={theme.primaryColor}
-                    onChange={(e) => setTheme({ ...theme, primaryColor: e.target.value })}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    value={theme.colors[key]}
+                    onChange={(e) => setColor(key, e.target.value)}
+                    className="h-8 w-10 cursor-pointer rounded border border-border bg-transparent p-0"
                   />
                 </label>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Preguntas por pantalla</label>
+              <div className="flex flex-wrap gap-1.5">
+                {QUESTIONS_PER_SCREEN_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    title={opt.description}
+                    onClick={() => setTheme((t) => ({ ...t, layout: { ...t.layout, questionsPerScreen: opt.id } }))}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      theme.layout.questionsPerScreen === opt.id
+                        ? "border-amber bg-amber/5 text-amber"
+                        : "border-border text-muted hover:bg-gray-50"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div className="space-y-3 pt-2">
-              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Fondo</label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => setTheme({ ...theme, backgroundColor: SYSTEM_BG })}
-                  className={`p-3 rounded-xl border text-sm font-medium transition-all ${
-                    theme.backgroundColor === SYSTEM_BG ? "border-amber bg-amber/5 text-amber" : "border-border text-muted hover:bg-gray-50"
-                  }`}
-                >
-                  Sistema
-                </button>
-                <button
-                  onClick={() => setTheme({ ...theme, backgroundColor: "#F3F4F6" })}
-                  className={`p-3 rounded-xl border text-sm font-medium transition-all ${
-                    theme.backgroundColor === "#F3F4F6" ? "border-amber bg-amber/5 text-amber" : "border-border text-muted hover:bg-gray-50"
-                  }`}
-                >
-                  Claro
-                </button>
-                <button
-                  onClick={() => setTheme({ ...theme, backgroundColor: "#121212" })}
-                  className={`p-3 rounded-xl border text-sm font-medium transition-all ${
-                    theme.backgroundColor === "#121212" ? "border-amber bg-amber/5 text-amber" : "border-border text-muted hover:bg-gray-50"
-                  }`}
-                >
-                  Oscuro
-                </button>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Alineación</label>
+              <div className="flex gap-1.5">
+                {ALIGN_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setTheme((t) => ({ ...t, layout: { ...t.layout, align: opt.id } }))}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      theme.layout.align === opt.id
+                        ? "border-amber bg-amber/5 text-amber"
+                        : "border-border text-muted hover:bg-gray-50"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
-              <p className="text-[11px] text-muted leading-snug">
-                «Sistema» sigue el modo claro/oscuro del dispositivo de cada participante.
-              </p>
-            </div>
-
-            <div className="space-y-3 pt-2">
-              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Logotipo</label>
-              <button className="w-full flex flex-col items-center justify-center gap-2 p-6 rounded-xl border border-dashed border-border text-muted hover:border-amber hover:text-amber transition-all bg-gray-50">
-                <ImageIcon className="w-6 h-6" />
-                <span className="text-xs font-medium">Subir imagen</span>
-              </button>
             </div>
           </section>
         </div>
 
-        {/* Canvas Area */}
-        <div
-          className="flex-1 rounded-[32px] overflow-hidden border border-border shadow-inner relative flex flex-col"
-          style={{ backgroundColor: resolvedTheme.backgroundColor }}
-        >
-          {/* Browser Bar Mockup */}
-          <div className="h-12 bg-white/80 backdrop-blur-md border-b border-border flex items-center px-4 shrink-0 shadow-sm z-10">
+        {/* Canvas / live preview */}
+        <div className="flex-1 min-h-0 rounded-[24px] overflow-hidden border border-border shadow-inner relative flex flex-col">
+          <div className="h-12 bg-white/80 backdrop-blur-md border-b border-border flex items-center px-4 shrink-0 z-10">
             <div className="flex gap-1.5">
               <div className="w-3 h-3 rounded-full bg-red-400" />
               <div className="w-3 h-3 rounded-full bg-amber-400" />
@@ -419,124 +321,72 @@ export function ProjectFormDesigner() {
               title="Copiar enlace del formulario público"
               className="group mx-auto flex items-center justify-center gap-2 bg-gray-100/80 hover:bg-amber/10 rounded-full h-7 max-w-[70%] px-4 text-[10px] font-mono transition-colors cursor-pointer"
             >
-              <span
-                className={`truncate transition-colors ${
-                  urlCopied ? "text-green-600" : "text-muted group-hover:text-amber group-hover:animate-pulse"
-                }`}
-              >
+              <span className={`truncate ${urlCopied ? "text-green-600" : "text-muted group-hover:text-amber"}`}>
                 {publicFormUrl}
               </span>
               {urlCopied ? (
                 <Check className="w-3 h-3 shrink-0 text-green-600" />
               ) : (
-                <Copy className="w-3 h-3 shrink-0 text-muted opacity-0 group-hover:opacity-100 group-hover:text-amber transition-opacity" />
+                <Copy className="w-3 h-3 shrink-0 text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
               )}
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-8 flex justify-center">
-            <div className="w-full max-w-xl my-auto">
-              <ColmenaFormShell
-                theme={resolvedTheme}
-                stepCurrent={1}
-                stepTotal={validQuestions.length > 0 && fields.length > 0 ? 2 : 1}
-                title={primaryForm?.title || projectQuery.data?.title || "Formulario de Estudio"}
-                subtitle={
-                  primaryForm?.description ||
-                  "Por favor, completa las siguientes preguntas con honestidad. Tus respuestas son anónimas."
-                }
-                canBack={false}
-                nextLabel="Siguiente"
-              >
-                {fields.length === 0 && validQuestions.length === 0 && (
-                  <div className="text-center py-10">
-                    <LayoutTemplate className="w-8 h-8 mx-auto mb-3 opacity-40" style={{ color: theme.primaryColor }} />
-                    <p className="text-sm font-medium" style={{ color: "#A7A7A7" }}>
-                      Aún no hay campos ni ítems
-                    </p>
-                    <p className="text-xs mt-1" style={{ color: "#777" }}>
-                      Añade variables exógenas o configura el instrumento en el Workspace.
-                    </p>
-                  </div>
-                )}
-
-                {/* Exogenous fields (with hover remove) */}
-                {fields.map((field) => {
-                  const rf: RenderField = {
-                    id: field.id,
-                    label: field.label,
-                    required: true,
-                    type:
-                      field.type === "select"
-                        ? "dropdown"
-                        : field.type === "text"
-                        ? "text_short"
-                        : field.type,
-                    options: field.options?.map((o) => ({ id: o, label: o })),
-                  };
-                  return (
-                    <div key={field.id} className="relative group">
-                      <ColmenaQuestionField theme={resolvedTheme} field={rf} disabled />
-                      <button
-                        onClick={() => removeField(field.id)}
-                        title="Quitar campo"
-                        className="absolute -top-1 right-0 p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <SurveyShell theme={theme} preview style={{ minHeight: "auto" }}>
+              <SurveyProgressHeader
+                studyName={primaryForm?.title || projectQuery.data?.title || "Formulario"}
+                answered={Object.keys(previewAnswers).length}
+                total={previewQuestions.length}
+              />
+              <main className="survey-main">
+                <div className="survey-card">
+                  <span className="survey-label" style={{ fontFamily: skinDef.fontLabel }}>
+                    Vista previa · así lo verán tus participantes
+                  </span>
+                  {previewQuestions.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "40px 0" }}>
+                      <LayoutTemplate className="w-8 h-8 mx-auto mb-3" style={{ color: "var(--survey-muted)" }} />
+                      <p className="survey-short-label">Este formulario aún no tiene ítems.</p>
                     </div>
-                  );
-                })}
-
-                {/* Instrument items preview (first 3) — real scale options when available */}
-                {groupQuestionsForMatrix(
-                  validQuestions.slice(0, 3).map((q) => {
-                    const realOptions = optionsMap[q.id];
-                    const isChoice =
-                      q.question_type === "likert" || q.question_type === "single_choice";
-                    const rf: RenderField = {
-                      id: q.id,
-                      label: q.label,
-                      helpText: q.help_text,
-                      required: q.is_required,
-                      type: q.question_type,
-                      dimensionId: q.dimension_id,
-                      options: realOptions
-                        ? realOptions.map((o) => ({ id: o.id, label: o.label, value: o.value }))
-                        : isChoice
-                        ? // Fallback while the scale loads / if none defined yet.
-                          [1, 2, 3, 4, 5].map((n) => ({ id: `${q.id}-${n}`, label: String(n) }))
-                        : undefined,
-                    };
-                    return rf;
-                  })
-                ).map((block, blockIdx) =>
-                  block.kind === "matrix" ? (
-                    <ColmenaLikertMatrix
-                      key={`matrix-${blockIdx}`}
-                      theme={resolvedTheme}
-                      fields={block.fields}
-                      scaleOptions={block.scaleOptions}
-                      answers={{}}
-                      disabled
-                    />
                   ) : (
-                    <ColmenaQuestionField
-                      key={block.field.id}
-                      theme={resolvedTheme}
-                      field={block.field}
-                      disabled
-                    />
-                  )
-                )}
-
-                {validQuestions.length > 3 && (
-                  <p className="text-center text-xs italic" style={{ color: "#777" }}>
-                    + {validQuestions.length - 3} ítems adicionales…
-                  </p>
-                )}
-              </ColmenaFormShell>
-            </div>
+                    <div className="flex flex-col gap-6" style={{ marginTop: 16 }}>
+                      {previewQuestions.map((q, i) => (
+                        <div key={q.id} className="flex flex-col gap-3">
+                          <p className="survey-question-text" style={{ fontSize: 16 }}>
+                            {i + 1}. {q.label}
+                          </p>
+                          <SurveyQuestionRenderer
+                            question={q}
+                            answer={
+                              previewAnswers[q.id]
+                                ? ({ question_id: q.id, ...previewAnswers[q.id] } as never)
+                                : undefined
+                            }
+                            onChange={(patch) =>
+                              setPreviewAnswers((prev) => ({ ...prev, [q.id]: { ...prev[q.id], ...patch } }))
+                            }
+                          />
+                        </div>
+                      ))}
+                      {validQuestions.length > previewQuestions.length && (
+                        <p className="survey-short-label" style={{ textAlign: "center", fontStyle: "italic" }}>
+                          + {validQuestions.length - previewQuestions.length} ítems adicionales…
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="survey-footer">
+                  <button type="button" className="survey-btn survey-btn-secondary" disabled>
+                    Atrás
+                  </button>
+                  <button type="button" className="survey-btn survey-btn-primary survey-btn--wide" disabled>
+                    Continuar
+                  </button>
+                </div>
+              </main>
+            </SurveyShell>
           </div>
         </div>
       </div>

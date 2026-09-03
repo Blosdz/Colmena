@@ -380,7 +380,12 @@ class PublicFormService:
         response_status = "complete" if len(answer_models) == len(active_questions) else "partial"
         return response_status, answer_models
 
-    def submit_public_response(self, public_slug: str, payload: PublicFormResponseCreate) -> PublicFormResponseRead:
+    def submit_public_response(
+        self,
+        public_slug: str,
+        payload: PublicFormResponseCreate,
+        client_ip: str | None = None,
+    ) -> PublicFormResponseRead:
         form = self._get_public_form_row(public_slug)
         if form.status == "closed":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Form is closed")
@@ -397,6 +402,7 @@ class PublicFormService:
             status=response_status,
             submitted_at=datetime.now(timezone.utc),
             source="public_link",
+            respondent_ip=client_ip,
             metadata_json=payload.metadata_json,
         )
         self.db.add(response)

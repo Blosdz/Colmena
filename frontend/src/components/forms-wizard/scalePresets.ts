@@ -74,3 +74,22 @@ export const VARIABLE_PRESETS: VariablePreset[] = [
 
 // Alias semántico: estos presets alimentan la sección fija "Datos del participante".
 export const PARTICIPANT_PRESETS = VARIABLE_PRESETS;
+
+import type { ExogenousOption } from "../../utils/bulkQuestionParser";
+
+/** Opciones (etiqueta + valor 1..n) derivadas de un preset de variable. */
+export function exogenousOptionsFromPreset(preset: VariablePreset): ExogenousOption[] {
+  return preset.optionsText
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((label, index) => ({ label, value: index + 1 }));
+}
+
+export function exogenousTypeFromPreset(
+  preset: VariablePreset,
+): "single_choice" | "number" | "text_short" {
+  if (preset.fieldType === "number") return "number";
+  if (preset.fieldType === "text") return "text_short";
+  return "single_choice";
+}

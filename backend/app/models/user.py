@@ -22,6 +22,9 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     username: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
+    # Solo para cuentas standalone de Colmena (registro con email + contraseña).
+    # NULL cuando el usuario entró vía SSO de AppThesis.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     appthesis_user_id: Mapped[str | None] = mapped_column(
         String(36), nullable=True, unique=True, index=True
     )

@@ -8,9 +8,10 @@ import { palette } from "../../utils/telemetryChart";
 import { LoadingState } from "../ui/LoadingState";
 
 const MAX_ROWS = 200;
-const ANCHOR_COLUMN_ORDER = ["respondent_code", "response_status", "submitted_at"];
+const ANCHOR_COLUMN_ORDER = ["respondent_code", "respondent_ip", "response_status", "submitted_at"];
 const ANCHOR_COLUMN_LABELS: Record<string, string> = {
   respondent_code: "Respondiente",
+  respondent_ip: "IP de origen",
   response_status: "Estado",
   submitted_at: "Enviado",
 };

@@ -23,6 +23,8 @@ class FormResponse(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="complete", index=True)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False, default="internal")
+    # IP desde la que se envió la respuesta (solo enlace público). IPv6 cabe en 45.
+    respondent_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     metadata_json: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="responses")

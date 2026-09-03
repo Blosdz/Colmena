@@ -23,6 +23,8 @@ backend/data/db/*.bak*
 *.err
 backend/data/exports/
 backend/data/uploads/
+backend/exports_storage/
+backend/reports_storage/
 .pytest_cache/
 .runlogs/
 _runlogs/

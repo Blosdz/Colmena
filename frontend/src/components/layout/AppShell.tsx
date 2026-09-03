@@ -21,11 +21,11 @@ export function AppShell({ children }: PropsWithChildren) {
         <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">
           <Topbar />
-          <main className={isWorkspace ? "flex-1 flex flex-col" : "flex-1 "}>
+          <main className={isWorkspace ? "flex-1 flex flex-col" : "flex-1"}>
             {isWorkspace ? (
               children
             ) : (
-              <div className="mx-auto flex flex-col ">
+              <div className="mx-auto flex w-full max-w-[1440px] flex-col px-6 py-6 sm:px-8">
                 {children}
               </div>
             )}

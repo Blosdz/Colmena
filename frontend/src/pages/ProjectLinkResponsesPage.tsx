@@ -207,9 +207,10 @@ export function ProjectLinkResponsesPage() {
           </div>
 
           <div className="mt-6 overflow-hidden rounded-[20px] border border-border">
-            <div className="grid grid-cols-[0.9fr_1fr_0.8fr] gap-4 border-b border-border bg-[#FCFCFB] px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-              <span>Codigo</span>
+            <div className="grid grid-cols-[0.9fr_1fr_0.9fr_0.8fr] gap-4 border-b border-border bg-[#FCFCFB] px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+              <span>Respondiente</span>
               <span>Fecha</span>
+              <span>IP de origen</span>
               <span>Estado</span>
             </div>
             <div className="divide-y divide-border">
@@ -217,9 +218,10 @@ export function ProjectLinkResponsesPage() {
                 <div className="px-4 py-5 text-sm text-muted">Todavia no hay respuestas registradas.</div>
               ) : (
                 responses.slice(0, 6).map((response) => (
-                  <div className="grid grid-cols-[0.9fr_1fr_0.8fr] gap-4 px-4 py-4 text-sm" key={response.id}>
+                  <div className="grid grid-cols-[0.9fr_1fr_0.9fr_0.8fr] gap-4 px-4 py-4 text-sm" key={response.id}>
                     <span className="text-dark">{response.respondent_code || response.id.slice(0, 6)}</span>
                     <span className="text-muted">{formatDate(response.submitted_at || response.created_at)}</span>
+                    <span className="font-mono text-xs text-muted">{response.respondent_ip || "—"}</span>
                     <span className="text-dark">{response.status}</span>
                   </div>
                 ))

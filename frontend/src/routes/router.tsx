@@ -14,6 +14,9 @@ import { ProjectResultsPage } from "../pages/ProjectResultsPage";
 import { ProjectReportsPage } from "../pages/ProjectReportsPage";
 import { PublicFormPage } from "../pages/PublicFormPage";
 import { LoginPage } from "../pages/LoginPage";
+import { SignupPage } from "../pages/SignupPage";
+import { ForgotPasswordPage } from "../pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "../pages/ResetPasswordPage";
 import { AuthCallbackPage } from "../pages/AuthCallbackPage";
 import { RequireAuth } from "../auth/RequireAuth";
 
@@ -33,6 +36,18 @@ export const router = createBrowserRouter([
   {
     path: "/login",
     element: <LoginPage />,
+  },
+  {
+    path: "/signup",
+    element: <SignupPage />,
+  },
+  {
+    path: "/forgot-password",
+    element: <ForgotPasswordPage />,
+  },
+  {
+    path: "/reset-password",
+    element: <ResetPasswordPage />,
   },
   {
     path: "/auth/callback",

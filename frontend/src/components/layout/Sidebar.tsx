@@ -11,13 +11,14 @@ import {
   Settings,
   LayoutDashboard
 } from "lucide-react";
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { listProjects } from "../../api/projects";
 import { BrandLogo } from "../../brand/BrandLogo";
 import { cn } from "../../utils/cn";
-import { getActiveProjectId, setActiveProjectId } from "../../utils/activeProject";
+import { getActiveProjectId, setActiveProjectId, resolveActiveProject } from "../../utils/activeProject";
 import { ColmenaMenuButton } from "./ColmenaMenuButton";
 
 type NavItem = {
@@ -47,15 +48,35 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   // We try to grab it from URL, or fallback to localStorage
   const match = location.pathname.match(/^\/project\/([a-zA-Z0-9-]+)/);
   const routeProjectId = match ? match[1] : null;
-  const activeProjectId = (routeProjectId && routeProjectId !== "new") ? routeProjectId : getActiveProjectId();
-
-  const hasProject = Boolean(activeProjectId && activeProjectId !== "new");
 
   const projectsQuery = useQuery({
     queryKey: ["sidebar-projects"],
     queryFn: listProjects,
   });
   const projects = projectsQuery.data?.items ?? [];
+
+  // Cuando cargan los proyectos del usuario, asegura que el proyecto activo
+  // guardado exista para ESTE usuario; si no, cae al más reciente (o se limpia).
+  // Sin esto, un usuario nuevo (o tras cambiar de cuenta) hereda un id que no
+  // le pertenece y el selector queda vacío aunque tenga proyectos.
+  useEffect(() => {
+    if (projectsQuery.isSuccess) {
+      resolveActiveProject(projects);
+    }
+  }, [projectsQuery.isSuccess, projects]);
+
+  const storedId = getActiveProjectId();
+  const storedIsValid = projects.some((p) => p.id === storedId);
+  const activeProjectId =
+    routeProjectId && routeProjectId !== "new"
+      ? routeProjectId
+      : storedIsValid
+        ? storedId
+        : projectsQuery.isSuccess && projects.length > 0
+          ? projects[0].id
+          : storedId;
+
+  const hasProject = Boolean(activeProjectId && activeProjectId !== "new");
 
   const handleSelectProject = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const projectId = event.target.value;
