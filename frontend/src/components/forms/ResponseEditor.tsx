@@ -107,7 +107,7 @@ export function ResponseEditor({
 }: Props) {
   const isExogenous = question.responseKind === "exogenous";
 
-  const currentValue = isExogenous ? EXO_CUSTOM : question.scale || "";
+  const currentValue = question.scale || "";
 
   const handleSelect = (raw: string) => {
     if (raw.startsWith(EXO_PREFIX)) {
@@ -115,12 +115,14 @@ export function ResponseEditor({
       const preset = VARIABLE_PRESETS.find((p) => p.id === presetId);
       onUpdate({
         responseKind: "exogenous",
+        type: preset ? exogenousTypeFromPreset(preset) : "single_choice",
+        dimensionName: "",
         scale: "",
         scored: false,
         reversed: false,
         isImportance: false,
         exogenousType: preset ? exogenousTypeFromPreset(preset) : "single_choice",
-        exogenousOptions: preset ? exogenousOptionsFromPreset(preset) : [{ label: "Opción 1", value: 1 }],
+        exogenousOptions: preset ? exogenousOptionsFromPreset(preset) : [{ label: "Opción 1", value: 1 }, { label: "Opción 2", value: 2 }],
         text: !question.text && preset ? preset.name : question.text,
       });
       return;
@@ -128,6 +130,7 @@ export function ResponseEditor({
     // Volver a una escala Likert compartida.
     onUpdate({
       responseKind: "scale",
+      type: "likert",
       scale: raw,
       scored: true,
       exogenousType: undefined,
@@ -141,46 +144,15 @@ export function ResponseEditor({
     setOpts(opts.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
 
   return (
-    <div className="rounded-lg border border-colmena-border bg-colmena-bg px-3 py-2.5 space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-muted">Editor de respuesta</span>
-        <select
-          className="bg-white outline-none cursor-pointer border border-colmena-border hover:border-amber focus:border-amber rounded px-1.5 py-1 text-[11px] font-medium text-dark shadow-sm"
-          value={currentValue}
-          onChange={(e) => handleSelect(e.target.value)}
-        >
-          <optgroup label="Escala Likert">
-            <option value="">Global{defaultScale ? ` · ${defaultScale.name}` : " · sin definir"}</option>
-            {scales.map((s) => (
-              <option key={s.id} value={s.name}>
-                {s.name}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Variable exógena">
-            {VARIABLE_PRESETS.map((p) => (
-              <option key={p.id} value={`${EXO_PREFIX}${p.id}`}>
-                {p.name}
-              </option>
-            ))}
-            <option value={EXO_CUSTOM}>Personalizada…</option>
-          </optgroup>
-        </select>
-        {!isExogenous && (
-          <span
-            className={cn(
-              "rounded-full px-1.5 py-0.5 text-[9px]",
-              inherited ? "bg-colmena-border/60 text-muted" : "bg-amber/15 text-dark",
-            )}
-          >
-            {effectiveScale
-              ? inherited
-                ? `Hereda: ${effectiveScale.name}`
-                : `Propia: ${effectiveScale.name}`
-              : "Define la escala global en la pestaña Escala"}
-          </span>
-        )}
+    <div className="question-response-editor">
+      <div className="question-response-kind" role="group" aria-label="Tipo de respuesta">
+        <button type="button" aria-pressed={!isExogenous} onClick={() => { if (isExogenous) handleSelect(""); }}>Escala Likert</button>
+        <button type="button" aria-pressed={isExogenous} onClick={() => { if (!isExogenous) handleSelect(EXO_CUSTOM); }}>Variable exógena</button>
       </div>
+      {isExogenous ? <div className="question-preset-list"><span>Empezar con:</span>{VARIABLE_PRESETS.map(p => <button type="button" key={p.id} className="question-button" onClick={() => handleSelect(`${EXO_PREFIX}${p.id}`)}>{p.name}</button>)}</div> : <label className="question-scale-choice">Escala de respuesta
+        <select value={currentValue} onChange={e => handleSelect(e.target.value)}><option value="">Compartida{defaultScale ? ` · ${defaultScale.name}` : " · sin definir"}</option>{scales.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}</select>
+        <span className="question-helper">{inherited ? "Usa la escala compartida de arriba." : "Esta escala se aplica solo a esta pregunta."}</span>
+      </label>}
 
       {/* Cuerpo modular ── escala Likert */}
       {!isExogenous && effectiveScale && (
@@ -195,7 +167,8 @@ export function ResponseEditor({
               <button
                 key={t}
                 type="button"
-                onClick={() => onUpdate({ exogenousType: t })}
+                aria-pressed={(question.exogenousType ?? "single_choice") === t}
+                onClick={() => onUpdate({ exogenousType: t, type: t })}
                 className={cn(
                   "rounded-md px-2 py-1 text-[10px] font-semibold border transition-colors",
                   (question.exogenousType ?? "single_choice") === t
@@ -214,6 +187,7 @@ export function ResponseEditor({
                 <div key={i} className="flex items-center gap-1.5">
                   <input
                     className="flex-1 bg-white outline-none border border-colmena-border hover:border-amber focus:border-amber rounded px-2 py-1 text-[11px] text-dark"
+                    aria-label={`Etiqueta de opción ${i + 1}`}
                     placeholder={`Opción ${i + 1}`}
                     value={opt.label}
                     onChange={(e) => updateOpt(i, { label: e.target.value })}
@@ -221,6 +195,7 @@ export function ResponseEditor({
                   <input
                     type="number"
                     className="w-14 bg-white outline-none border border-colmena-border hover:border-amber focus:border-amber rounded px-1.5 py-1 text-[11px] text-dark"
+                    aria-label={`Valor de opción ${i + 1}`}
                     title="Valor con el que se guarda esta opción"
                     value={opt.value}
                     onChange={(e) => updateOpt(i, { value: Number(e.target.value) })}
@@ -237,7 +212,7 @@ export function ResponseEditor({
               ))}
               <button
                 type="button"
-                onClick={() => setOpts([...opts, { label: "", value: opts.length + 1 }])}
+                onClick={() => setOpts([...opts, { label: "", value: Math.max(0, ...opts.map(o => o.value)) + 1 }])}
                 className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber hover:underline"
               >
                 <Plus className="w-3 h-3" /> Agregar opción

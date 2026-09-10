@@ -13,6 +13,7 @@ export function BulkQuestionImporter({ onDataParsed }: Props) {
     (event: React.ClipboardEvent<HTMLDivElement>) => {
       const pastedText = event.clipboardData.getData("text");
       if (!pastedText) return;
+      event.preventDefault();
       const parsedRows = parseBulkQuestions(pastedText);
       if (parsedRows.length > 0) {
         onDataParsed(parsedRows);
@@ -27,6 +28,8 @@ export function BulkQuestionImporter({ onDataParsed }: Props) {
       <FileSpreadsheet className="w-4 h-4 text-amber shrink-0" />
       <div
         className="flex-1 min-h-[28px] text-[12px] text-muted outline-none cursor-text"
+        role="textbox"
+        aria-label="Pegar preguntas desde Excel"
         contentEditable
         onPaste={handlePaste}
         data-placeholder="Pega tus ítems desde Excel aquí (Ctrl+V)..."

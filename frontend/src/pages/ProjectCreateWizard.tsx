@@ -21,8 +21,6 @@ import { ExcelDataUploader } from "../components/forms/ExcelDataUploader";
 import { ParticipantDataPanel } from "../components/project/ParticipantDataPanel";
 import {
   PARTICIPANT_PRESETS,
-  VARIABLE_PRESETS,
-  exogenousOptionsFromPreset,
 } from "../components/forms-wizard/scalePresets";
 import {
   useProjectDraft,
@@ -653,13 +651,14 @@ export function ProjectCreateWizard() {
           // Normalizar: 'radio' no es aceptado por el formulario público; usar 'likert'
           const mappedType = (item.type === "radio" ? "likert" : item.type) || "likert";
 
+          const itemScale = item.scale ? catalogScales.find((scale) => scale.name === item.scale) : undefined;
           const question = await createQuestion(formId, {
             label: item.text,
             question_type: mappedType,
             instrument_id: instrumentId,
             dimension_id: dimensionId || null,
             project_variable_id: projectVariableId,
-            scale_id: variableScaleId,
+            scale_id: itemScale?.id ?? variableScaleId,
             measurement_level: variable.measurementLevel,
             data_type: variable.dataType,
             code: item.code || `P${qIdx + 1}`,
@@ -672,7 +671,7 @@ export function ProjectCreateWizard() {
           });
 
           // 2e. Create scale options for the question
-          const optionsToCreate = variable.scale.options;
+          const optionsToCreate = itemScale?.options ?? variable.scale.options;
           for (let optIdx = 0; optIdx < optionsToCreate.length; optIdx++) {
             const opt = optionsToCreate[optIdx];
             await createQuestionOption(question.id, {
@@ -787,11 +786,10 @@ export function ProjectCreateWizard() {
 
   const handleAddExogenousItem = () => {
     const nextIndex = activeVariable.items.length + 1;
-    const sexo = VARIABLE_PRESETS.find((p) => p.id === "sexo");
     const newItem: ParsedQuestion = {
       id: crypto.randomUUID(),
       code: `X${nextIndex}`,
-      text: sexo?.name ?? "Variable exógena",
+      text: "",
       dimensionName: "",
       type: "single_choice",
       scale: "",
@@ -802,7 +800,7 @@ export function ProjectCreateWizard() {
       status: "review",
       responseKind: "exogenous",
       exogenousType: "single_choice",
-      exogenousOptions: sexo ? exogenousOptionsFromPreset(sexo) : [{ label: "Opción 1", value: 1 }],
+      exogenousOptions: [{ label: "Opción 1", value: 1 }, { label: "Opción 2", value: 2 }],
     };
     store.addItems(activeVariable.id, [newItem]);
   };

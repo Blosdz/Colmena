@@ -1,4 +1,5 @@
-import { Trash2 } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, Search, Trash2 } from "lucide-react";
 
 import type { ParsedQuestion } from "../../utils/bulkQuestionParser";
 import type { DimensionDraft } from "../../utils/projectDraftStore";
@@ -60,10 +61,18 @@ export function BulkQuestionTable({
   onRemove,
   onClearSelection,
 }: Props) {
+  const [search, setSearch] = useState("");
+  const [knownIds, setKnownIds] = useState(() => questions.map(q => q.id));
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => Object.fromEntries(questions.filter(q => !q.text.trim()).map(q => [q.id, true])));
+  if (questions.length !== knownIds.length || questions.some((q, i) => q.id !== knownIds[i])) {
+    setKnownIds(questions.map(q => q.id));
+    setExpanded(previous => Object.fromEntries(questions.map(q => [q.id, previous[q.id] ?? !knownIds.includes(q.id)])));
+    setSearch("");
+  }
   if (questions.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-colmena-border py-6 text-center text-[11px] text-muted">
-        Sin ítems cargados. Pega desde Excel arriba o agrega manualmente.
+        Tu primera pregunta empieza aquí. Agrega una pregunta Likert o una variable exógena.
       </div>
     );
   }
@@ -79,11 +88,15 @@ export function BulkQuestionTable({
 
   /** Aplica un cambio a todos los ítems seleccionados */
   const applyToSelected = (updates: Partial<ParsedQuestion>) => {
-    selectedIds.forEach((id) => onUpdate(id, updates));
+    selectedIds.forEach((id) => {
+      const q = questions.find(item => item.id === id);
+      if (q?.responseKind !== "exogenous") onUpdate(id, updates);
+    });
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl border border-colmena-border bg-white shadow-sm">
+    <div className="question-list">
+      <label className="question-search"><Search size={18} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por pregunta, código o dimensión…" aria-label="Buscar preguntas" /></label>
       {/* ── Barra de acciones masivas (aparece al seleccionar) ── */}
       {selectedIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-b border-amber/30 bg-amber/5 px-3 py-2 animate-colmena-fade-in">
@@ -168,114 +181,38 @@ export function BulkQuestionTable({
         </div>
       )}
 
-      {/* ── Header ── */}
-      <div className="flex items-center gap-2 border-b border-colmena-border bg-colmena-bg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-muted">
-        <input checked={allSelected} onChange={onToggleAll} type="checkbox" className="rounded" />
-        <span>Seleccionar todos</span>
-      </div>
-
-      {/* ── Tarjetas por ítem: pregunta arriba, escala completa debajo ── */}
-      <div className="flex-1 divide-y divide-colmena-border overflow-y-auto">
-        {questions.map((q, index) => {
-          const isSelected = selectedIds.includes(q.id);
+      <div className="question-list-heading"><label><input checked={allSelected} onChange={onToggleAll} type="checkbox" /> Seleccionar todas</label><span>{questions.length} preguntas</span></div>
+      <div className="question-rows">
+        {questions.filter(q => `${q.code} ${q.text} ${q.dimensionName}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(q => {
           const issues = getItemIssues(q);
-          const isReady = issues.length === 0;
           const { scale: effective, inherited } = getEffectiveScale(q);
-
-          return (
-            <div key={q.id} className={cn("p-3 space-y-2.5 transition-colors", isSelected && "bg-amber/3")}>
-              {/* Encabezado: selección, código, estado */}
-              <div className="flex items-center gap-2">
-                <input checked={isSelected} onChange={() => onToggleSelect(q.id)} type="checkbox" className="rounded shrink-0" />
-                <input
-                  className="w-16 shrink-0 bg-white outline-none font-medium text-dark border border-colmena-border hover:border-amber focus:border-amber rounded px-1.5 py-1 text-[11px] shadow-sm transition-all"
-                  value={q.code}
-                  onChange={(e) => onUpdate(q.id, { code: e.target.value })}
-                />
-                <span
-                  className={cn(
-                    "inline-flex shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold leading-none cursor-help",
-                    isReady ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
-                  )}
-                  title={isReady ? "Ítem completo" : issues.join(" · ")}
-                >
-                  {isReady ? "OK" : "Rev"}
-                </span>
-                <span className="text-[10px] text-muted ml-auto shrink-0">Ítem {index + 1}</span>
-                <button
-                  type="button"
-                  title="Eliminar ítem"
-                  className="shrink-0 p-1 text-muted hover:text-danger transition-colors"
-                  onClick={() => {
-                    if (window.confirm("¿Eliminar este ítem?")) onRemove(q.id);
-                  }}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {/* Pregunta */}
-              <input
-                className="w-full bg-white outline-none text-dark border border-colmena-border hover:border-amber focus:border-amber rounded-lg px-3 py-2 text-[14px] font-semibold shadow-sm transition-all"
-                placeholder="Escribe el texto de la pregunta…"
-                value={q.text}
-                onChange={(e) => onUpdate(q.id, { text: e.target.value })}
-              />
-
-              {/* Editor de respuesta modular: escala Likert o variable exógena */}
-              <ResponseEditor
-                question={q}
-                effectiveScale={effective}
-                inherited={inherited}
-                scales={scales}
-                defaultScale={defaultScale}
-                onUpdate={(updates) => onUpdate(q.id, updates)}
-              />
-              {q.responseKind !== "exogenous" && q.reversed && effective && effective.options.length > 1 && (
-                <p className="text-[10px] text-muted">
-                  Invertido: "{effective.options[0].label}" puntúa {effective.options[effective.options.length - 1].value} y "
-                  {effective.options[effective.options.length - 1].label}" puntúa {effective.options[0].value}.
-                </p>
-              )}
-
-              {/* Controles secundarios: dimensión + flags */}
-              <div className="flex flex-wrap items-center gap-2">
-                {q.responseKind !== "exogenous" && (
-                  <select
-                    className={cn(
-                      "bg-white outline-none font-medium cursor-pointer border rounded px-1.5 py-1 text-[11px] shadow-sm transition-all hover:border-amber focus:border-amber",
-                      q.dimensionName ? "border-colmena-border text-dark" : "border-warning/50 text-warning"
-                    )}
-                    value={q.dimensionName || ""}
-                    onChange={(e) => onUpdate(q.id, { dimensionName: e.target.value })}
-                  >
-                    <option value="">— Sin asignar —</option>
-                    {dimensions.map((d) => (
-                      <option key={d.id} value={d.name}>{d.name}</option>
-                    ))}
-                  </select>
-                )}
-
-                {q.responseKind !== "exogenous" && (
-                  <label className="inline-flex items-center gap-1 text-[11px] text-muted" title="Ítem invertido: se recodifica al puntuar">
-                    <input type="checkbox" checked={q.reversed} onChange={(e) => onUpdate(q.id, { reversed: e.target.checked })} />
-                    Invertido
-                  </label>
-                )}
-                <label className="inline-flex items-center gap-1 text-[11px] text-muted" title="Respuesta obligatoria">
-                  <input type="checkbox" checked={q.required} onChange={(e) => onUpdate(q.id, { required: e.target.checked })} />
-                  Requerido
-                </label>
-                {q.responseKind !== "exogenous" && (
-                  <label className="inline-flex items-center gap-1 text-[11px] text-muted" title="Ítem de importancia (para el gráfico Stewart)">
-                    <input type="checkbox" checked={q.isImportance} onChange={(e) => onUpdate(q.id, { isImportance: e.target.checked })} />
-                    Importancia
-                  </label>
-                )}
-              </div>
+          const exogenous = q.responseKind === "exogenous";
+          const open = expanded[q.id] ?? false;
+          const typeLabel = exogenous ? "Variable exógena" : `Likert · ${effective?.options.length ?? 0} puntos`;
+          return <article key={q.id} className={cn("question-row", open && "is-open", selectedIds.includes(q.id) && "is-selected")}>
+            <div className="question-row-summary">
+              <input aria-label={`Seleccionar ${q.code}`} checked={selectedIds.includes(q.id)} onChange={() => onToggleSelect(q.id)} type="checkbox" />
+              <button type="button" className="question-row-main" aria-expanded={open} aria-controls={`editor-${q.id}`} onClick={() => setExpanded(prev => ({ ...prev, [q.id]: !open }))}>
+                <span className={cn("question-code", exogenous && "is-exogenous")}>{q.code || "?"}</span>
+                <span className="question-row-copy"><strong>{q.text || "Escribe tu pregunta"}</strong><span>{exogenous ? "Dato del participante" : q.dimensionName || "Sin dimensión"}{q.required ? " · Obligatoria" : " · Opcional"}{issues.length > 0 ? " · Por completar" : ""}</span></span>
+                <span className={cn("question-type-pill", exogenous && "is-exogenous")}>{typeLabel}<ChevronDown size={14} className={open ? "question-chevron-open" : ""} /></span>
+              </button>
+              <button type="button" aria-label={`Eliminar ${q.code}`} className="question-icon-button" onClick={() => { if (window.confirm("¿Eliminar esta pregunta?")) onRemove(q.id); }}><Trash2 size={16} /></button>
             </div>
-          );
+            {open && <div id={`editor-${q.id}`} className="question-row-editor">
+              <div className="question-field-grid question-text-fields"><label>Código<input value={q.code} onChange={e => onUpdate(q.id, { code: e.target.value })} /></label><label>Pregunta<textarea rows={2} placeholder="Escribe el texto de la pregunta…" value={q.text} onChange={e => onUpdate(q.id, { text: e.target.value })} /></label></div>
+              <ResponseEditor question={q} effectiveScale={effective} inherited={inherited} scales={scales} defaultScale={defaultScale} onUpdate={updates => onUpdate(q.id, updates)} />
+              <div className="question-secondary-controls">
+                {!exogenous && <label>Dimensión<select aria-label="Dimensión" value={q.dimensionName || ""} onChange={e => onUpdate(q.id, { dimensionName: e.target.value })}><option value="">Seleccionar dimensión</option>{dimensions.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}</select></label>}
+                <label className="question-check"><input type="checkbox" checked={q.required} onChange={e => onUpdate(q.id, { required: e.target.checked })} /> Obligatoria</label>
+                {!exogenous && <><label className="question-check"><input type="checkbox" checked={q.reversed} onChange={e => onUpdate(q.id, { reversed: e.target.checked })} /> Puntuación invertida</label><label className="question-check"><input type="checkbox" checked={q.isImportance} onChange={e => onUpdate(q.id, { isImportance: e.target.checked })} /> Importancia</label></>}
+              </div>
+              {issues.length > 0 && <p className="question-helper">Pendiente: {issues.join(" · ")}</p>}
+              <div className="question-editor-footer"><button type="button" className="question-button" onClick={() => setExpanded(prev => ({ ...prev, [q.id]: false }))}>Listo</button></div>
+            </div>}
+          </article>;
         })}
+        {search && !questions.some(q => `${q.code} ${q.text} ${q.dimensionName}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())) && <p className="question-empty">No hay preguntas que coincidan con tu búsqueda.</p>}
       </div>
 
       {/* ── Footer ── */}

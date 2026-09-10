@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { ChevronDown, Pencil, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, FileSpreadsheet, Plus, SlidersHorizontal } from "lucide-react";
+import { LikertScaleEditor } from "./LikertScaleEditor";
 
-import type { VariableDraft, ScaleDraft } from "../../utils/projectDraftStore";
+import type { ScaleDraft, VariableDraft } from "../../utils/projectDraftStore";
 import type { ParsedQuestion } from "../../utils/bulkQuestionParser";
 import { BulkQuestionImporter } from "./BulkQuestionImporter";
 import { BulkQuestionTable, type CatalogScale } from "./BulkQuestionTable";
-import { ScaleBuilder } from "./ScaleBuilder";
 
 type Props = {
   variable: VariableDraft;
@@ -39,76 +39,28 @@ export function ItemsPanel({
   onAddExogenousItem,
   onUpdateScale,
 }: Props) {
-  const [showScaleEditor, setShowScaleEditor] = useState(false);
-
+  const [editingScale, setEditingScale] = useState(false);
+  const [importing, setImporting] = useState(false);
   return (
-    <div className="flex-1 min-h-0 flex flex-col gap-3">
-      {/* Escala de respuesta (fusionada aquí: los ítems la heredan) */}
-      <div
-        className={`rounded-xl border bg-white shrink-0 transition-colors ${
-          showScaleEditor ? "border-amber/50 shadow-sm" : "border-colmena-border"
-        }`}
-      >
-        <button
-          type="button"
-          onClick={() => setShowScaleEditor((s) => !s)}
-          className="group w-full flex items-center gap-2 px-3 py-2 text-left"
-        >
-          <SlidersHorizontal className="w-4 h-4 text-amber shrink-0" />
-          <span className="text-[12px] font-bold text-dark">Escala de respuesta</span>
-          <span className="text-[11px] text-muted truncate">· {variable.scale.name}</span>
-          <div className="hidden md:flex items-center gap-1 ml-1 overflow-hidden">
-            {variable.scale.options.slice(0, 6).map((o) => (
-              <span key={o.id} className="shrink-0 rounded-full bg-colmena-bg px-1.5 py-0.5 text-[9px] text-muted">
-                {o.value} {o.label}
-              </span>
-            ))}
-          </div>
-          <span
-            className={`ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-semibold shrink-0 transition-colors ${
-              showScaleEditor
-                ? "bg-amber/15 text-amber"
-                : "bg-colmena-bg text-muted group-hover:bg-amber/10 group-hover:text-amber"
-            }`}
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            {showScaleEditor ? "Listo" : "Editar"}
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showScaleEditor ? "rotate-180" : ""}`} />
-          </span>
-        </button>
-        {showScaleEditor && (
-          <div className="border-t border-colmena-border max-h-[55vh] overflow-y-auto">
-            <ScaleBuilder
-              embedded
-              scale={variable.scale}
-              presets={catalogScales}
-              onChange={onUpdateScale}
-              previewQuestion={variable.items[0]?.text}
-            />
-          </div>
-        )}
+    <div className="question-workspace">
+      <div className="question-workspace-heading">
+        <div><h2>Preguntas</h2><p>Define qué quieres preguntar y cómo se responde.</p></div>
+        <div className="question-actions">
+          <button type="button" className="question-button" onClick={() => setImporting(!importing)} aria-expanded={importing}><FileSpreadsheet size={16} /> Importar Excel</button>
+          <button type="button" className="question-button" onClick={onAddExogenousItem}><Plus size={16} /> Variable exógena</button>
+          <button type="button" className="question-button question-button-primary" onClick={onAddManualItem}><Plus size={16} /> Agregar pregunta</button>
+        </div>
       </div>
-
-      {/* Importar desde Excel: sección propia, separada de las acciones rápidas */}
-      <div className="rounded-xl border border-colmena-border bg-white p-3 shrink-0">
-        <span className="text-[11px] font-bold text-dark block mb-2">Importar ítems desde Excel</span>
-        <BulkQuestionImporter onDataParsed={onAddItems} />
-      </div>
-
-      <div className="flex items-center gap-2 shrink-0">
-        <button type="button" onClick={onAddManualItem} className="colmena-button-sm-primary">
-          + Agregar ítem
+      <section className="question-scale-card">
+        <button type="button" className="question-scale-summary" onClick={() => setEditingScale(!editingScale)} aria-expanded={editingScale}>
+          <span className="question-symbol"><SlidersHorizontal size={20} /></span>
+          <span className="question-scale-copy"><strong>Escala Likert compartida</strong><span>{variable.scale.name || "Define tu escala"}{/\b\d+ puntos\b/i.test(variable.scale.name) ? "" : ` · ${variable.scale.options.length} puntos`}</span></span>
+          <span className="question-edit-label">{editingScale ? "Cerrar" : "Editar escala"}</span><ChevronDown size={16} className={editingScale ? "question-chevron-open" : ""} />
         </button>
-        <button
-          type="button"
-          onClick={onAddExogenousItem}
-          className="rounded-lg border border-colmena-border bg-white px-2.5 py-1.5 text-[12px] font-semibold text-dark hover:border-amber hover:text-amber transition-colors"
-          title="Dato de perfil del participante (Sexo, Edad…) — se guarda como variable comparable, no se puntúa"
-        >
-          + Variable exógena
-        </button>
-      </div>
-
+        {!editingScale && variable.scale.options.length > 0 && <div className="question-scale-options">{variable.scale.options.map(o => <span key={o.id}><b>{o.value}</b>{o.label}</span>)}</div>}
+        {editingScale && <LikertScaleEditor key={variable.id} scale={variable.scale} catalog={catalogScales} onCancel={() => setEditingScale(false)} onSave={scale => { onUpdateScale(scale); setEditingScale(false); }} />}
+      </section>
+      {importing && <div className="question-import"><p>Copia las filas de Excel y pégalas aquí. Puedes incluir código y pregunta en dos columnas.</p><BulkQuestionImporter onDataParsed={onAddItems} /></div>}
       <BulkQuestionTable
         questions={variable.items}
         selectedIds={selectedIds}
