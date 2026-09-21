@@ -844,7 +844,7 @@ export function ProjectCreateWizard() {
     <div className="flex h-full flex-col animate-colmena-fade-in relative">
       {/* ── Futuristic Saving Overlay ───────────────── */}
       {isSaving && (
-        <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="max-w-sm w-full bg-[#0D1117]/90 border border-[#F5B21A]/20 rounded-2xl p-6 text-center shadow-[0_0_40px_rgba(245,178,26,0.12)] relative overflow-hidden">
             <div className="absolute -top-10 -left-10 w-20 h-20 bg-[#F5B21A]/10 rounded-full blur-xl" />
             <div className="absolute -bottom-10 -right-10 w-20 h-20 bg-[#E09A0A]/10 rounded-full blur-xl" />
@@ -871,7 +871,7 @@ export function ProjectCreateWizard() {
 
       {/* ── Error Overlay ──────────── */}
       {saveError && (
-        <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="max-w-sm w-full bg-[#0D1117] border border-red-500/30 rounded-2xl p-6 text-center shadow-[0_0_30px_rgba(239,68,68,0.12)]">
             <AlertTriangle className="w-10 h-10 text-red-500 mx-auto mb-3" />
             <h3 className="text-base font-bold text-white font-mono uppercase tracking-wider mb-1.5">Error</h3>
@@ -886,7 +886,7 @@ export function ProjectCreateWizard() {
 
       {/* ── Modal: nombre del proyecto ───────────────── */}
       {showProjectInfo && !isSaving && (
-        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm z-40 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
           <div className="max-w-md w-full bg-white border border-colmena-border rounded-2xl p-6 shadow-xl animate-colmena-fade-in">
             <div className="flex items-center gap-3 mb-4">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber/15 text-amber">
