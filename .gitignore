@@ -13,6 +13,8 @@ data/db/*.bak*
 backend/data/db/*.db
 backend/data/db/*.sqlite
 backend/data/db/*.bak*
+backend/data/db/backups/
+backend/.runtime*/
 
 # Config local de Claude Code
 .claude/

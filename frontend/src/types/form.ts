@@ -166,6 +166,7 @@ export interface PublicFormLink {
   public_slug: string;
   public_url: string;
   status: string;
+  published_instrument_ids: string[];
 }
 
 export interface ResponseAnswer {

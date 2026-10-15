@@ -1,8 +1,9 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, ExternalLink, PauseCircle, PlayCircle, Share2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
-import { closeForm, getPublicLink, listProjectForms, listResponses, publishForm, reopenForm } from "../api/forms";
+import { closeForm, consolidateProjectForms, getPublicLink, listInstruments, listProjectForms, listResponses, publishForm, reopenForm } from "../api/forms";
 import { getProject } from "../api/projects";
 import { buildPublicFormUrl } from "../config/env";
 import { PageHeader } from "../components/layout/PageHeader";
@@ -41,7 +42,10 @@ export function ProjectLinkResponsesPage() {
     enabled: Boolean(projectId),
   });
 
-  const primaryForm = getPrimaryForm(formsQuery.data?.items ?? []);
+  const projectForms = formsQuery.data?.items ?? [];
+  const primaryForm = getPrimaryForm(projectForms);
+  const requiresConsolidation = projectForms.length > 1;
+  const [selectedInstrumentIds, setSelectedInstrumentIds] = useState<string[]>([]);
 
   const publicLinkQuery = useQuery({
     queryKey: ["project-link-public", primaryForm?.id],
@@ -59,13 +63,43 @@ export function ProjectLinkResponsesPage() {
     queryFn: () => listResponses(primaryForm!.id),
     enabled: Boolean(primaryForm?.id),
   });
+  const instrumentsQuery = useQuery({
+    queryKey: ["project-link-instruments", primaryForm?.id],
+    queryFn: () => listInstruments(primaryForm!.id),
+    enabled: Boolean(primaryForm?.id),
+  });
+
+  useEffect(() => {
+    const instruments = instrumentsQuery.data?.items ?? [];
+    if (instruments.length === 0) {
+      setSelectedInstrumentIds([]);
+      return;
+    }
+    const availableIds = new Set(instruments.map((instrument) => instrument.id));
+    const publishedIds = (publicLinkQuery.data?.published_instrument_ids ?? []).filter((id) =>
+      availableIds.has(id),
+    );
+    setSelectedInstrumentIds(
+      publishedIds.length > 0 ? publishedIds : instruments.map((instrument) => instrument.id),
+    );
+  }, [instrumentsQuery.data, publicLinkQuery.data?.published_instrument_ids]);
 
   const publishMutation = useMutation({
-    mutationFn: () => publishForm(primaryForm!.id),
+    mutationFn: async () => {
+      const targetForm = requiresConsolidation
+        ? await consolidateProjectForms(projectId)
+        : primaryForm!;
+      if (requiresConsolidation) {
+        const consolidatedInstruments = await listInstruments(targetForm.id);
+        return publishForm(targetForm.id, consolidatedInstruments.items.map((item) => item.id));
+      }
+      return publishForm(targetForm.id, selectedInstrumentIds);
+    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["project-link-forms", projectId] }),
         queryClient.invalidateQueries({ queryKey: ["project-link-public", primaryForm?.id] }),
+        queryClient.invalidateQueries({ queryKey: ["project-link-responses", primaryForm?.id] }),
       ]);
     },
   });
@@ -82,12 +116,12 @@ export function ProjectLinkResponsesPage() {
     },
   });
 
-  if (projectQuery.isLoading || formsQuery.isLoading) {
+  if (projectQuery.isLoading || formsQuery.isLoading || instrumentsQuery.isLoading) {
     return <LoadingState label="Preparando link y respuestas..." />;
   }
 
-  if (projectQuery.isError || formsQuery.isError) {
-    return <ErrorState message={((projectQuery.error || formsQuery.error) as Error).message} />;
+  if (projectQuery.isError || formsQuery.isError || instrumentsQuery.isError) {
+    return <ErrorState message={((projectQuery.error || formsQuery.error || instrumentsQuery.error) as Error).message} />;
   }
 
   if (!projectQuery.data) {
@@ -124,7 +158,7 @@ export function ProjectLinkResponsesPage() {
     ? buildPublicFormUrl(publicLinkQuery.data.public_slug)
     : "";
 
-  const isPublished = primaryForm.status === "published" && Boolean(frontendPublicUrl);
+  const isPublished = !requiresConsolidation && primaryForm.status === "published" && Boolean(frontendPublicUrl);
   const responses = responsesQuery.data?.items ?? [];
 
   return (
@@ -168,10 +202,43 @@ export function ProjectLinkResponsesPage() {
             <p className="mt-2 break-all text-sm text-dark">{frontendPublicUrl || "Todavia no generado"}</p>
           </div>
 
+          <div className="mt-6 border-t border-border pt-6">
+            <h3 className="text-base font-semibold text-dark">Cuestionarios a publicar</h3>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {(instrumentsQuery.data?.items ?? []).map((instrument) => (
+                <label
+                  className="flex cursor-pointer items-center gap-3 border border-border bg-white px-4 py-3 text-sm text-dark"
+                  key={instrument.id}
+                >
+                  <input
+                    checked={selectedInstrumentIds.includes(instrument.id)}
+                    className="h-4 w-4 accent-[#F5B21A]"
+                    onChange={(event) => {
+                      setSelectedInstrumentIds((current) =>
+                        event.target.checked
+                          ? [...current, instrument.id]
+                          : current.filter((id) => id !== instrument.id),
+                      );
+                    }}
+                    type="checkbox"
+                  />
+                  <span>{instrument.name}</span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-muted">
+              Los datos del participante se incluyen siempre. Selecciona al menos un cuestionario.
+            </p>
+          </div>
+
           <div className="mt-6 flex flex-wrap gap-3">
-            <PrimaryAction disabled={isPublished} loading={publishMutation.isPending} onClick={() => publishMutation.mutate()} type="button">
+            <PrimaryAction disabled={selectedInstrumentIds.length === 0} loading={publishMutation.isPending} onClick={() => publishMutation.mutate()} type="button">
               <Share2 className="mr-2 h-4 w-4" />
-              Publicar link
+              {requiresConsolidation
+                ? "Publicar proyecto completo"
+                : isPublished
+                  ? "Actualizar publicación"
+                  : "Publicar link"}
             </PrimaryAction>
             <button
               className="colmena-button-secondary inline-flex items-center justify-center"

@@ -23,6 +23,7 @@ export interface PublicFormOptionRead {
   id: string;
   label: string;
   value: string;
+  score?: number | null;
   sort_order: number;
 }
 
@@ -49,6 +50,7 @@ export interface PublicFormQuestionRead {
 }
 
 export interface PublicFormRead {
+  snapshot_id?: string | null;
   id: string;
   project_id: string;
   title: string;
@@ -72,6 +74,7 @@ export interface PublicAnswerCreate {
 }
 
 export interface PublicFormResponseCreate {
+  snapshot_id?: string | null;
   respondent_code?: string | null;
   answers: PublicAnswerCreate[];
   metadata_json?: any;

@@ -9,6 +9,11 @@ class PublicFormLinkRead(BaseModel):
     public_slug: str | None
     public_url: str | None
     api_url: str | None
+    published_instrument_ids: list[str] = Field(default_factory=list)
+
+
+class PublicFormPublishRequest(BaseModel):
+    instrument_ids: list[str] | None = None
 
 
 class PublicFormOptionRead(BaseModel):
@@ -17,6 +22,7 @@ class PublicFormOptionRead(BaseModel):
     id: str
     label: str
     value: str
+    score: float | None = None
     sort_order: int
 
 
@@ -72,6 +78,7 @@ class PublicFormSectionRead(BaseModel):
 
 
 class PublicFormRead(BaseModel):
+    snapshot_id: str | None = None
     id: str
     project_id: str
     title: str
@@ -103,6 +110,7 @@ class PublicAnswerCreate(BaseModel):
 
 
 class PublicFormResponseCreate(BaseModel):
+    snapshot_id: str | None = None
     respondent_code: str | None = Field(default=None, max_length=100)
     answers: list[PublicAnswerCreate] = Field(default_factory=list)
     metadata_json: dict | list | None = None

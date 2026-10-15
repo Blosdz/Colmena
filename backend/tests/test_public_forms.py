@@ -228,8 +228,75 @@ def test_public_publish_read_submit_close_reopen_flow(client: TestClient):
             ]
         },
     )
-    assert deleted_question_submit.status_code == 400
+    # La versión publicada conserva la pregunta aunque el editor la elimine
+    # después. Las respuestas ya iniciadas no deben perderse.
+    assert deleted_question_submit.status_code == 201
 
     fetched_response = client.get(f"/api/v1/form-responses/{response_id}")
     assert fetched_response.status_code == 200
     assert fetched_response.json()["id"] == response_id
+
+
+def test_open_response_survives_question_replacement_and_republish(client: TestClient):
+    project = create_project(client)
+    form = create_form(client, project["id"], "Formulario versionado")
+    original_question, original_option = create_basic_public_question(client, form["id"])
+    published = publish_form(client, form["id"])
+    public_slug = published["public_slug"]
+
+    opened = client.get(f"/api/public/forms/{public_slug}")
+    assert opened.status_code == 200
+    opened_body = opened.json()
+    original_snapshot_id = opened_body["snapshot_id"]
+    assert original_snapshot_id
+    assert [item["id"] for item in opened_body["questions"]] == [original_question["id"]]
+
+    deleted = client.delete(f"/api/v1/form-questions/{original_question['id']}")
+    assert deleted.status_code == 200
+
+    replacement_question, replacement_option = create_basic_public_question(client, form["id"])
+
+    still_opened = client.get(f"/api/public/forms/{public_slug}")
+    assert still_opened.status_code == 200
+    assert still_opened.json()["snapshot_id"] == original_snapshot_id
+    assert [item["id"] for item in still_opened.json()["questions"]] == [original_question["id"]]
+
+    republished = publish_form(client, form["id"])
+    assert republished["public_slug"] == public_slug
+    latest = client.get(f"/api/public/forms/{public_slug}")
+    assert latest.status_code == 200
+    assert latest.json()["snapshot_id"] != original_snapshot_id
+    assert [item["id"] for item in latest.json()["questions"]] == [replacement_question["id"]]
+
+    old_response = client.post(
+        f"/api/public/forms/{public_slug}/responses",
+        json={
+            "snapshot_id": original_snapshot_id,
+            "answers": [
+                {
+                    "question_id": original_question["id"],
+                    "option_id": original_option["id"],
+                }
+            ],
+        },
+    )
+    assert old_response.status_code == 201
+
+    stored = client.get(f"/api/v1/form-responses/{old_response.json()['response_id']}")
+    assert stored.status_code == 200
+    assert stored.json()["answers"][0]["question_id"] == replacement_question["id"]
+    assert stored.json()["answers"][0]["option_id"] == replacement_option["id"]
+
+    latest_response = client.post(
+        f"/api/public/forms/{public_slug}/responses",
+        json={
+            "snapshot_id": latest.json()["snapshot_id"],
+            "answers": [
+                {
+                    "question_id": replacement_question["id"],
+                    "option_id": replacement_option["id"],
+                }
+            ],
+        },
+    )
+    assert latest_response.status_code == 201

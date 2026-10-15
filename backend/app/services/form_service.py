@@ -1,14 +1,17 @@
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session, selectinload
 
+from app.models.base import Base
 from app.models.form import Form
+from app.models.form_answer import FormAnswer
 from app.models.form_dimension import FormDimension
 from app.models.form_instrument import FormInstrument
 from app.models.form_question import FormQuestion
 from app.models.form_question_option import FormQuestionOption
+from app.models.form_response import FormResponse
 from app.models.form_section import FormSection
 from app.models.project import Project
 from app.models.project_variable import ProjectVariable
@@ -185,6 +188,298 @@ class FormService:
         items = list(self.db.scalars(select(Form).where(*filters).order_by(Form.created_at.asc())).all())
         total = int(self.db.scalar(select(func.count()).select_from(Form).where(*filters)) or 0)
         return items, total
+
+    def consolidate_project_forms(self, project_id: str) -> Form:
+        project = self._get_project(project_id)
+        forms = list(
+            self.db.scalars(
+                select(Form)
+                .options(
+                    selectinload(Form.sections),
+                    selectinload(Form.instruments),
+                    selectinload(Form.questions).selectinload(FormQuestion.options),
+                )
+                .where(Form.project_id == project_id, Form.deleted_at.is_(None))
+                .order_by(Form.created_at.asc())
+            ).all()
+        )
+        if not forms:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project has no forms")
+
+        response_counts = dict(
+            self.db.execute(
+                select(FormResponse.form_id, func.count(FormResponse.id))
+                .where(
+                    FormResponse.form_id.in_([form.id for form in forms]),
+                    FormResponse.deleted_at.is_(None),
+                )
+                .group_by(FormResponse.form_id)
+            ).all()
+        )
+        primary = max(
+            enumerate(forms),
+            key=lambda item: (int(response_counts.get(item[1].id, 0)), -item[0]),
+        )[1]
+        now = datetime.now(timezone.utc)
+
+        def is_participant_section(section: FormSection) -> bool:
+            return section.title.strip().casefold() == "datos del participante"
+
+        participant_section = next(
+            (
+                section
+                for section in primary.sections
+                if section.deleted_at is None and is_participant_section(section)
+            ),
+            None,
+        )
+        participant_questions = {
+            question.code.casefold(): question
+            for question in primary.questions
+            if question.deleted_at is None
+            and question.instrument_id is None
+            and question.code
+            and (
+                question.question_role == "sociodemographic"
+                or any(
+                    section.id == question.section_id and is_participant_section(section)
+                    for section in primary.sections
+                    if section.deleted_at is None
+                )
+            )
+        }
+
+        excluded_bulk_tables = {
+            "form_instruments",
+            "form_public_snapshots",
+            "form_questions",
+            "form_sections",
+        }
+
+        for secondary in forms:
+            if secondary.id == primary.id:
+                continue
+
+            secondary_participant_sections = {
+                section.id
+                for section in secondary.sections
+                if section.deleted_at is None and is_participant_section(section)
+            }
+            if participant_section is None and secondary_participant_sections:
+                participant_section = next(
+                    section
+                    for section in secondary.sections
+                    if section.id in secondary_participant_sections
+                )
+                participant_section.form_id = primary.id
+                secondary_participant_sections.remove(participant_section.id)
+
+            for section in secondary.sections:
+                if section.deleted_at is not None or section.id == getattr(participant_section, "id", None):
+                    continue
+                if section.id in secondary_participant_sections:
+                    section.deleted_at = now
+                else:
+                    section.form_id = primary.id
+
+            for instrument in secondary.instruments:
+                if instrument.deleted_at is None:
+                    instrument.form_id = primary.id
+
+            for question in secondary.questions:
+                if question.deleted_at is not None:
+                    continue
+                is_participant_question = (
+                    question.instrument_id is None
+                    and (
+                        question.question_role == "sociodemographic"
+                        or question.section_id in secondary_participant_sections
+                    )
+                )
+                target = (
+                    participant_questions.get(question.code.casefold())
+                    if is_participant_question and question.code
+                    else None
+                )
+                if target is not None and target.question_type == question.question_type:
+                    source_options = {option.id: option for option in question.options}
+                    target_options_by_value: dict[str, list[FormQuestionOption]] = {}
+                    for option in target.options:
+                        if option.deleted_at is None:
+                            target_options_by_value.setdefault(option.value, []).append(option)
+
+                    staged_answers: list[tuple[FormAnswer, str | None, list | dict | None]] = []
+                    can_merge = True
+                    answers = list(
+                        self.db.scalars(
+                            select(FormAnswer).where(FormAnswer.question_id == question.id)
+                        ).all()
+                    )
+                    for answer in answers:
+                        target_option_id = answer.option_id
+                        if answer.option_id is not None:
+                            source_option = source_options.get(answer.option_id)
+                            candidates = (
+                                target_options_by_value.get(source_option.value, [])
+                                if source_option is not None
+                                else []
+                            )
+                            if len(candidates) != 1:
+                                can_merge = False
+                                break
+                            target_option_id = candidates[0].id
+
+                        target_value_json = answer.value_json
+                        if isinstance(answer.value_json, list):
+                            target_value_json = []
+                            for raw_value in answer.value_json:
+                                if not isinstance(raw_value, str):
+                                    target_value_json.append(raw_value)
+                                    continue
+                                source_option = source_options.get(raw_value)
+                                candidates = (
+                                    target_options_by_value.get(source_option.value, [])
+                                    if source_option is not None
+                                    else []
+                                )
+                                if len(candidates) != 1:
+                                    can_merge = False
+                                    break
+                                target_value_json.append(candidates[0].id)
+                        if not can_merge:
+                            break
+                        staged_answers.append((answer, target_option_id, target_value_json))
+
+                    if can_merge:
+                        for answer, target_option_id, target_value_json in staged_answers:
+                            duplicate = self.db.scalar(
+                                select(FormAnswer).where(
+                                    FormAnswer.response_id == answer.response_id,
+                                    FormAnswer.question_id == target.id,
+                                    FormAnswer.id != answer.id,
+                                )
+                            )
+                            if duplicate is not None:
+                                self.db.delete(answer)
+                                continue
+                            answer.question_id = target.id
+                            answer.option_id = target_option_id
+                            answer.value_json = target_value_json
+                        question.deleted_at = now
+                        continue
+
+                question.form_id = primary.id
+                if is_participant_question and participant_section is not None:
+                    question.section_id = participant_section.id
+                    if question.code:
+                        participant_questions.setdefault(question.code.casefold(), question)
+
+            for table in Base.metadata.tables.values():
+                if table.name in excluded_bulk_tables or "form_id" not in table.c:
+                    continue
+                self.db.execute(
+                    update(table)
+                    .where(table.c.form_id == secondary.id)
+                    .values(form_id=primary.id)
+                )
+
+            secondary.status = "closed"
+            secondary.collect_closed_at = now
+            secondary.deleted_at = now
+
+        self.db.flush()
+
+        active_instruments = list(
+            self.db.scalars(
+                select(FormInstrument)
+                .where(
+                    FormInstrument.form_id == primary.id,
+                    FormInstrument.deleted_at.is_(None),
+                )
+                .order_by(FormInstrument.sort_order.asc(), FormInstrument.created_at.asc())
+            ).all()
+        )
+        active_sections = list(
+            self.db.scalars(
+                select(FormSection).where(
+                    FormSection.form_id == primary.id,
+                    FormSection.deleted_at.is_(None),
+                )
+            ).all()
+        )
+        if participant_section is not None:
+            participant_section.sort_order = 0
+
+        for index, instrument in enumerate(active_instruments, start=1):
+            instrument.sort_order = index - 1
+            instrument_section = next(
+                (
+                    section
+                    for section in active_sections
+                    if not is_participant_section(section)
+                    and section.title.strip().casefold() == instrument.name.strip().casefold()
+                ),
+                None,
+            )
+            if instrument_section is None:
+                instrument_section = FormSection(
+                    form_id=primary.id,
+                    title=instrument.name,
+                    description=instrument.description,
+                    sort_order=index,
+                )
+                self.db.add(instrument_section)
+                self.db.flush()
+                active_sections.append(instrument_section)
+            else:
+                instrument_section.sort_order = index
+
+            instrument_questions = list(
+                self.db.scalars(
+                    select(FormQuestion)
+                    .where(
+                        FormQuestion.form_id == primary.id,
+                        FormQuestion.instrument_id == instrument.id,
+                        FormQuestion.deleted_at.is_(None),
+                    )
+                    .order_by(FormQuestion.sort_order.asc(), FormQuestion.created_at.asc())
+                ).all()
+            )
+            for question_index, question in enumerate(instrument_questions):
+                question.section_id = instrument_section.id
+                question.sort_order = question_index
+
+        required_question_ids = set(
+            self.db.scalars(
+                select(FormQuestion.id).where(
+                    FormQuestion.form_id == primary.id,
+                    FormQuestion.deleted_at.is_(None),
+                    FormQuestion.is_required.is_(True),
+                )
+            ).all()
+        )
+        responses = list(
+            self.db.scalars(
+                select(FormResponse).where(
+                    FormResponse.form_id == primary.id,
+                    FormResponse.deleted_at.is_(None),
+                )
+            ).all()
+        )
+        for response in responses:
+            answered_question_ids = set(
+                self.db.scalars(
+                    select(FormAnswer.question_id).where(FormAnswer.response_id == response.id)
+                ).all()
+            )
+            response.status = (
+                "complete" if required_question_ids.issubset(answered_question_ids) else "partial"
+            )
+
+        primary.title = project.title
+        self.db.commit()
+        self.db.refresh(primary)
+        return primary
 
     def get_form(self, form_id: str) -> Form:
         return self._get_form(form_id)

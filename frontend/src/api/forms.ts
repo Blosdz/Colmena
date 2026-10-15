@@ -24,6 +24,10 @@ export function createForm(projectId: string, payload: Record<string, unknown>) 
   return apiClient.post<Form>(`/api/v1/projects/${projectId}/forms`, payload);
 }
 
+export function consolidateProjectForms(projectId: string) {
+  return apiClient.post<Form>(`/api/v1/projects/${projectId}/forms/consolidate`);
+}
+
 export function getForm(formId: string) {
   return apiClient.get<Form>(`/api/v1/forms/${formId}`);
 }
@@ -32,8 +36,11 @@ export function getPublicLink(formId: string) {
   return apiClient.get<PublicFormLink>(`/api/v1/forms/${formId}/public-link`);
 }
 
-export function publishForm(formId: string) {
-  return apiClient.post<PublicFormLink>(`/api/v1/forms/${formId}/publish`);
+export function publishForm(formId: string, instrumentIds?: string[]) {
+  return apiClient.post<PublicFormLink>(
+    `/api/v1/forms/${formId}/publish`,
+    instrumentIds === undefined ? undefined : { instrument_ids: instrumentIds },
+  );
 }
 
 export function closeForm(formId: string) {

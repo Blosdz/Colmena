@@ -50,6 +50,7 @@ import {
 } from "../api/projects";
 import {
   createForm,
+  consolidateProjectForms,
   createInstrument,
   createDimension,
   createQuestion,
@@ -482,7 +483,35 @@ export function ProjectCreateWizard() {
       const existingFormsResponse = await listProjectForms(projectId);
       const existingVariablesResponse = await listProjectVariables(projectId);
 
-      // 2. For each variable, create the study Variable, then Form, Instrument, Dimensions, and Questions
+      // Un proyecto se recolecta en un solo formulario. Los proyectos antiguos podían
+      // tener uno por variable; se consolidan antes de volver a guardar.
+      let form = existingFormsResponse.items[0] ?? null;
+      if (existingFormsResponse.items.length > 1) {
+        setSavingStatus("Consolidando los instrumentos del proyecto...");
+        form = await consolidateProjectForms(projectId);
+      }
+
+      let formId = "";
+      if (form) {
+        formId = form.id;
+        await apiClient.patch(`/api/v1/forms/${formId}`, {
+          title: draft.title || "Proyecto sin título",
+          description: draft.description || "Formulario integral del proyecto",
+        });
+        await clearFormStructure(formId);
+      } else {
+        form = await createForm(projectId, {
+          title: draft.title || "Proyecto sin título",
+          description: draft.description || "Formulario integral del proyecto",
+          status: "draft",
+        });
+        formId = form.id;
+      }
+
+      setSavingStatus("Creando sección de datos del participante...");
+      await createParticipantSection(formId);
+
+      // 2. Cada variable aporta un instrumento y una sección al formulario único.
       for (let i = 0; i < draft.variables.length; i++) {
         const variable = draft.variables[i];
         setSavingStatus(`Registrando variable de estudio: ${variable.name}...`);
@@ -515,29 +544,11 @@ export function ProjectCreateWizard() {
 
         setSavingStatus(`Guardando constructo métrico para: ${variable.name}...`);
 
-        let form = existingFormsResponse.items.find(f => f.title === variable.name) || existingFormsResponse.items[i];
-        let formId = "";
-
-        if (form) {
-          formId = form.id;
-          await apiClient.patch(`/api/v1/forms/${formId}`, {
-            title: variable.name,
-            description: draft.description || `Formulario para la variable ${variable.name}`
-          });
-          await clearFormStructure(formId);
-        } else {
-          // 2a. Create Form
-          form = await createForm(projectId, {
-            title: variable.name,
-            description: draft.description || `Formulario automatizado para la variable ${variable.name}`,
-            status: "draft",
-          });
-          formId = form.id;
-        }
-
-        // 2a-bis. Sección fija "Datos del participante" (primero en cada formulario)
-        setSavingStatus("Creando sección de datos del participante...");
-        await createParticipantSection(formId);
+        const instrumentSection = await createSection(formId, {
+          title: variable.name,
+          description: variable.description || `Instrumento para la variable ${variable.name}`,
+          sort_order: i + 1,
+        });
 
         // 2b. Create Instrument (linked to the study variable)
         const instrument = await createInstrument(formId, {
@@ -545,6 +556,7 @@ export function ProjectCreateWizard() {
           acronym: (variable.code || variable.name).substring(0, 5).toUpperCase(),
           description: variable.description || variable.name,
           project_variable_id: projectVariableId,
+          sort_order: i,
         });
         const instrumentId = instrument.id;
 
@@ -617,6 +629,7 @@ export function ProjectCreateWizard() {
             }
 
             const exoQuestion = await createQuestion(formId, {
+              section_id: instrumentSection.id,
               label: item.text,
               question_type: exoType,
               instrument_id: null,
@@ -653,6 +666,7 @@ export function ProjectCreateWizard() {
 
           const itemScale = item.scale ? catalogScales.find((scale) => scale.name === item.scale) : undefined;
           const question = await createQuestion(formId, {
+            section_id: instrumentSection.id,
             label: item.text,
             question_type: mappedType,
             instrument_id: instrumentId,
@@ -738,11 +752,13 @@ export function ProjectCreateWizard() {
           }
         }
 
-        // 2h. Publish the form so it gets an accessible public URL right away
-        if (variable.items.length > 0) {
-          setSavingStatus(`Publicando formulario: ${variable.name}...`);
-          await publishForm(formId);
-        }
+      }
+
+      // Publicar una sola vez garantiza que la versión pública contenga todos
+      // los instrumentos y que cada encuestado responda el proyecto completo.
+      if (draft.variables.some((variable) => variable.items.length > 0)) {
+        setSavingStatus("Publicando el formulario integral del proyecto...");
+        await publishForm(formId);
       }
 
       setSavingStatus("¡Estructura guardada con éxito!");

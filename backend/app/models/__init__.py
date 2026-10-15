@@ -14,6 +14,7 @@ from app.models.form_dimension import FormDimension
 from app.models.form_instrument import FormInstrument
 from app.models.form_question import FormQuestion
 from app.models.form_question_option import FormQuestionOption
+from app.models.form_public_snapshot import FormPublicSnapshot
 from app.models.form_response import FormResponse
 from app.models.form_section import FormSection
 from app.models.project import Project
@@ -44,6 +45,7 @@ __all__ = [
     "FormInstrument",
     "FormQuestion",
     "FormQuestionOption",
+    "FormPublicSnapshot",
     "FormResponse",
     "FormSection",
     "Project",

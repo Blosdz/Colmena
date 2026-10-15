@@ -34,7 +34,7 @@ from app.schemas.form_section import (
     FormSectionUpdate,
 )
 from app.services.form_service import FormService
-from app.schemas.public_form import PublicFormLinkRead
+from app.schemas.public_form import PublicFormLinkRead, PublicFormPublishRequest
 from app.services.public_form_service import PublicFormService
 
 router = APIRouter(tags=["forms"])
@@ -66,6 +66,14 @@ def list_forms(
     return FormListResponse(items=items, total=total)
 
 
+@router.post("/api/v1/projects/{project_id}/forms/consolidate", response_model=FormRead)
+def consolidate_project_forms(
+    project_id: str,
+    service: FormService = Depends(get_form_service),
+) -> FormRead:
+    return service.consolidate_project_forms(project_id)
+
+
 @router.get("/api/v1/forms/{form_id}", response_model=FormRead)
 def get_form(
     form_id: str,
@@ -94,9 +102,13 @@ def delete_form(
 @router.post("/api/v1/forms/{form_id}/publish", response_model=PublicFormLinkRead)
 def publish_form(
     form_id: str,
+    payload: PublicFormPublishRequest | None = None,
     service: PublicFormService = Depends(get_public_form_service),
 ) -> PublicFormLinkRead:
-    _, link = service.publish_form(form_id)
+    _, link = service.publish_form(
+        form_id,
+        payload.instrument_ids if payload is not None else None,
+    )
     return link
 
 

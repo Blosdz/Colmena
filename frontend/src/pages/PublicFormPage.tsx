@@ -77,6 +77,7 @@ export function PublicFormPage() {
   const submitMutation = useMutation({
     mutationFn: () =>
       submitPublicResponse(publicSlug, {
+        snapshot_id: form?.snapshot_id || undefined,
         respondent_code: respondentCode || undefined,
         answers: Object.values(answers),
         metadata_json: {
